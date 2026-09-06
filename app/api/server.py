@@ -114,6 +114,12 @@ def create_app(
         # NOTE: the boot route must be registered BEFORE the /app mount:
         # Starlette matches in registration order, and the static mount would
         # otherwise shadow /app/boot entirely.
+
+        @app.get("/")
+        async def app_root() -> RedirectResponse:
+            """Browser/demo entry: into the bundled UI (its own gate handles auth)."""
+            return RedirectResponse(url="/app/")
+
         @app.get("/app/boot")
         async def app_boot(request: Request):
             """Token → HttpOnly session cookie, then into the UI."""

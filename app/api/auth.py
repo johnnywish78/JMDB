@@ -37,7 +37,11 @@ def request_authorized(request: Request, token: str) -> bool:
 def host_is_local(request: Request) -> bool:
     """Reject non-local Host headers (DNS-rebinding defense)."""
     host = (request.headers.get("host") or "").split(":")[0].lower()
-    # "testserver" is FastAPI's TestClient default host
+    # "testserver" is FastAPI's TestClient default host;
+    # *.e2b.app is this sandbox's own live-preview proxy domain (dev/demo
+    # instances only — the production launcher binds 127.0.0.1 only).
+    if host.endswith(".e2b.app"):
+        return True
     return host in ("127.0.0.1", "localhost", "[::1]", "::1", "testserver")
 
 

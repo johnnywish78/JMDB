@@ -213,6 +213,33 @@ function wireTopbar() {
 }
 
 /* ---------------------------------------------------------------- boot */
+function renderTokenGate() {
+  const target = page();
+  target.replaceChildren();
+  const input = el("input", {
+    class: "input", type: "password", placeholder: "Launch token",
+    style: { width: "320px" }, spellcheck: "false",
+  });
+  const go = () => {
+    const value = input.value.trim();
+    if (!value) return;
+    sessionStorage.setItem("jmdb_token", value);
+    target.replaceChildren(el("div", { class: "spinner-wrap" }, el("div", { class: "spinner" })));
+    boot();
+  };
+  input.addEventListener("keydown", (event) => { if (event.key === "Enter") go(); });
+  target.append(
+    el("div", { class: "empty", style: { paddingTop: "120px" } },
+      el("h3", {}, "This JMDB backend wants its launch token"),
+      el("p", {}, "The desktop app passes it automatically (boot cookie). " +
+        "In a browser, paste this backend's launch token once; it stays for this session."),
+      el("div", { style: { display: "flex", gap: "10px", justifyContent: "center", marginTop: "16px" } },
+        input,
+        el("button", { class: "btn primary", onclick: go }, "Continue")),
+      sessionStorage.getItem("jmdb_token") ? el("p", { style: { fontSize: "12px" } }, "(the previous token was rejected — a new launch has a new token)") : null));
+  input.focus();
+}
+
 async function boot() {
   buildNav();
   wireTopbar();
@@ -221,6 +248,10 @@ async function boot() {
     await loadSettings();
     store.appInfo = await api.get("/api/app/info");
   } catch (error) {
+    if (error.status === 401) {
+      renderTokenGate();
+      return;
+    }
     page().append(
       el("div", { class: "error-note" }, `Backend unreachable: ${error.message}. Retrying…`));
     setTimeout(boot, 2000);

@@ -10,11 +10,12 @@ export class ApiError extends Error {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  const token = sessionStorage.getItem("jmdb_token");
+  if (token && !path.startsWith("/app/")) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const response = await fetch(path, { ...options, headers, body: options.body !== undefined ? JSON.stringify(options.body) : undefined });
   if (!response.ok) {
     let detail = "";
     try {
