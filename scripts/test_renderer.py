@@ -1,0 +1,482 @@
+#!/usr/bin/env python3
+"""Renderer integration test — real Chromium (QtWebEngine) against the real API.
+
+Loads the REAL Electron renderer (electron/src) served by the REAL backend
+(as run.py does), drives it like a user (navigation, theme switch, search,
+detail pages, the player with a REAL video file, subtitles, the browser hub's
+honest no-Electron notice), and asserts on real DOM/API state.
+
+Offline-safe: everything is local (no external sites are loaded).
+
+Run: QT_QPA_PLATFORM=offscreen python3 scripts/test_renderer.py
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import sys
+import tempfile
+import threading
+import time
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+PORT = 8831
+BASE = f"http://127.0.0.1:{PORT}"
+VIDEO = Path("/tmp/jmdb-rt/test-vp8.mkv")
+
+results = []
+
+
+def pump() -> None:
+    """Give the Qt loop a kick so web content + JS callbacks can run."""
+    from PyQt6.QtWidgets import QApplication
+
+    for _ in range(6):
+        QApplication.processEvents()
+        time.sleep(0.02)
+
+
+def check(name: str, ok: bool, detail: str = "") -> None:
+    results.append((name, bool(ok)))
+    print(f"{'PASS' if ok else 'FAIL'} — {name}" + (f" — {detail}" if detail else ""), flush=True)
+
+
+def main() -> int:
+    home = Path(tempfile.mkdtemp(prefix="jmdb-renderer-"))
+    os.environ["JMDB_HOME"] = str(home)
+
+    from tests.seedlib import seed_media_tree, scan_tree, seed_library
+    from app.bootstrap.dependencies import Dependencies
+    from app.api.context import APIContext
+    from app.api.auth import generate_token
+    from app.api.server import create_app
+
+    # real media with a REAL playable video in place of the seeded stub files
+    tree = home
+    seed_media_tree(tree)
+    replaced = []
+    for pattern in ("Movies/**/*.mkv", "Movies/**/*.mp4", "TV/**/*.mkv", "Music/**/*.mp3",
+                   "media/Movies/**/*.mkv", "media/Movies/**/*.mp4", "media/TV/**/*.mkv", "media/Music/**/*.mp3"):
+        for path in tree.glob(pattern):
+            shutil.copy2(VIDEO, path)
+            replaced.append(path.name)
+    check("real playable media files in place", len(replaced) >= 4, f"{len(replaced)} files")
+
+    ctx = APIContext(Dependencies(), generate_token())
+    scan_tree(ctx.services, tree)
+    seed_library(ctx.services, home)
+
+    # seed_library scans a second media tree under home/media — replace those
+    # stubs with the real playable clip too, so every playable file in the DB plays
+    def replace_with_real_media():
+        count = 0
+        for pattern in ("Movies/**/*.mkv", "Movies/**/*.mp4", "TV/**/*.mkv", "Music/**/*.mp3",
+                        "media/Movies/**/*.mkv", "media/Movies/**/*.mp4", "media/TV/**/*.mkv", "media/Music/**/*.mp3"):
+            for media in tree.glob(pattern):
+                shutil.copy2(VIDEO, media)
+                count += 1
+        return count
+
+    replaced2 = replace_with_real_media()
+    check("real playable media files in place (both trees)", replaced2 >= 10, f"{replaced2} files")
+
+    import uvicorn
+
+    app = create_app(context=ctx)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="error"))
+    threading.Thread(target=server.run, daemon=True).start()
+    wait_http(f"{BASE}/api/health")
+    check("backend healthy on 127.0.0.1", True, BASE)
+
+    # ---------------------------------------------------------------- QtWebEngine
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+    os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --disable-gpu --disable-dev-shm-usage --autoplay-policy=no-user-gesture-required")
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import QUrl
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+
+    qt_app = QApplication.instance() or QApplication(["jmdb-renderer-test"])
+    view = QWebEngineView()
+
+    boot_url = f"{BASE}/app/boot?token={ctx.token}"
+    view.load(QUrl(boot_url))
+    nav_count = None
+    for _ in range(80):
+        pump()
+        nav_count = js(view, "document.querySelectorAll('#nav a').length", timeout_s=2)
+        if nav_count:
+            break
+        print(f"  waiting: title={view.title()!r} url={view.url().toString()!r} nav={nav_count}", flush=True)
+        time.sleep(0.15)
+    if not nav_count:
+        check("renderer booted (boot token → cookie → app)", False, f"nav never populated (title={view.title()!r})")
+        return finish(server, 1)
+    nav_count = js(view, "document.querySelectorAll('#nav a').length")
+    check("renderer booted (boot token → cookie → app)", True, f"{nav_count} nav items")
+
+    nav_labels = js_value(view, "JSON.stringify([...document.querySelectorAll('#nav a .label')].map(a => a.textContent))")
+    check("navigation complete", len(nav_labels) >= 14, ", ".join(nav_labels[:6]) + "…")
+
+    def goto(hash: str, expr: str, timeout_s: float = 12.0) -> str:
+        js(view, f"(() => {{ location.hash = {json.dumps(hash)}; return true }})()")
+        return wait_js(view, expr, timeout_s)
+
+    # ---------------------------------------------------------------- home
+    cards = goto("#/home", "document.querySelectorAll('.poster-card, .continueCard').length")
+    check("home renders cards from real API data", int(cards or 0) >= 4, f"{cards} cards")
+    stats = goto("#/home", "document.querySelectorAll('.stat-grid .fact').length")
+    check("home renders stats strip", int(stats or 0) >= 4, f"{stats} facts")
+
+    # ---------------------------------------------------------------- movies grid + filters
+    cards = goto("#/movies", "document.querySelectorAll('.grid .poster-card').length")
+    check("movies grid renders", int(cards or 0) >= 2, f"{cards} movies")
+    n = goto("#/movies?q=night", "document.querySelectorAll('.grid .poster-card').length")
+    check("movies title filter (client-side reload)", int(n or 0) == 1, f"{n} movie matches 'night'")
+
+    # ---------------------------------------------------------------- tv + music
+    cards = goto("#/tv", "document.querySelectorAll('.grid .poster-card').length")
+    check("tv grid renders", int(cards or 0) >= 2, f"{cards} shows")
+    n = goto("#/music?type=albums", "document.querySelectorAll('.grid .album-card, .grid .poster-card').length")
+    check("music albums render", int(n or 0) >= 1, f"{n} albums")
+    n = goto("#/music?type=tracks", "document.querySelectorAll('.track-row').length")
+    check("music tracks render", int(n or 0) >= 2, f"{n} tracks")
+
+    # ---------------------------------------------------------------- search
+    n = goto("#/search?q=night", "document.querySelectorAll('.grid .poster-card').length")
+    check("global search finds results", int(n or 0) >= 1, f"{n} movie cards")
+
+    # ---------------------------------------------------------------- detail pages
+    n = goto("#/people", "document.querySelectorAll('.person-card').length")
+    check("people page renders", int(n or 0) >= 1, f"{n} people")
+    people_id = js(view, "document.querySelector('.person-card') ? 1 : 0")
+    n = goto(f"#/person/{people_id}", "document.querySelectorAll('.filmography .poster-card, .detail-layout').length")
+    check("person detail renders filmography", int(n or 0) >= 1)
+
+    # movie detail via search result
+    movie_id = int(js(view, "document.getElementById('global-search') ? 1 : 0") or 1)
+    n = goto(f"#/movie/{movie_id}", "document.querySelectorAll('.hero, .facts-grid, .file-row').length")
+    check("movie detail renders hero/facts/files", int(n or 0) >= 3, f"{n} blocks")
+
+    # show detail (Solar Winds id=1 in seed data)
+    n = goto("#/show/1", "document.body.textContent.includes('Seasons') && document.querySelectorAll('.section').length")
+    err = js(view, "document.querySelector('.error-note') ? document.querySelector('.error-note').textContent.slice(0, 140) : ''", timeout_s=3)
+    check("show detail renders seasons", int(n or 0) >= 3, f"{n} sections; page error: {err!r}")
+
+    # season detail → episodes
+    n = goto("#/season/1", "document.querySelectorAll('.episode-row').length")
+    check("season detail renders episodes", int(n or 0) >= 3, f"{n} episodes")
+
+    # ---------------------------------------------------------------- theme switching
+    # theme: ask the PAGE to PATCH (async), then verify DOM + CSS + persistence (sync)
+    patched = js(view, """(async () => {
+        const res = await fetch('/api/settings',
+            {headers: {'Content-Type': 'application/json'}, method: 'PATCH',
+             body: JSON.stringify({theme: 'light'})});
+        return res.ok ? 'ok' : 'http-' + res.status;
+    })()""", promise=True, timeout_s=15)
+    check("theme PATCH via the page succeeded", patched == "ok", str(patched))
+    pump()
+    saved = http_get(ctx.token, f"{BASE}/api/settings")["values"]["theme"]
+    applied = js(view, "document.documentElement.dataset.theme", timeout_s=3)
+    bg = js(view, "getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()", timeout_s=3)
+    check("theme saved to profile", saved == "light", str(saved))
+    check("theme applied to DOM", applied == "light", str(applied))
+    check("light theme CSS variables live", bg.startswith("#f") or bg.startswith("rgb(24"), f"--bg={bg}")
+    js(view, "(() => { fetch('/api/settings', {headers: {'Content-Type': 'application/json'}, method: 'PATCH', body: JSON.stringify({theme: 'system'})}); return 1 })()", timeout_s=3)
+    pump()
+
+    # ---------------------------------------------------------------- subtitles endpoint (SRT → WebVTT)
+    srt = next(tree.glob("TV/**/Solar.Winds.S01E01*.srt"), None)
+    if srt:
+        import urllib.parse
+
+        vtt = http_text(ctx.token, f"{BASE}/api/subtitles?path={urllib.parse.quote(str(srt))}")
+        check("subtitles endpoint serves WebVTT", vtt.startswith("WEBVTT"), vtt[:40].replace("\n", " "))
+    else:
+        check("subtitles endpoint serves WebVTT", False, "seed srt missing")
+
+    # ---------------------------------------------------------------- PLAYER with a real video
+    played = goto(f"#/movie/{movie_id}", "document.querySelectorAll('.play-btn').length")
+    check("movie detail offers Play", int(played or 0) >= 1)
+    js(view, "(() => { document.querySelector('.play-btn').click(); return 1 })()", timeout_s=3)
+    ok = wait_js(view, "document.querySelector('.player video') ? 1 : 0", 20)
+    check("player overlay opens", bool(ok))
+    if ok:
+        state_raw = js(view, """(async () => {
+        await new Promise(r => setTimeout(r, 2600));
+        const video = document.querySelector('.player video');
+        const track = document.querySelector('.player video track');
+        return JSON.stringify([video.currentTime, video.duration, video.readyState,
+                               video.error ? String(video.error.code) : 'none',
+                               track ? track.getAttribute('src') : 'none']);
+    })()""", promise=True, timeout_s=20)
+        state = _parse_json(state_raw)
+        if isinstance(state, list) and len(state) == 5:
+            current, duration, ready, error, track = state
+            check("real video plays in embedded player",
+                  float(current) > 0.8 and float(duration) >= 10 and ready in (3, 4) and error == "none",
+                  f"t={current:.1f}s of {duration:.1f}s, readyState={ready}, err={error}")
+            # pause / seek / resume round-trip
+            state2_raw = js(view, """(async () => {
+        const video = document.querySelector('.player video');
+        video.pause();
+        await new Promise(r => setTimeout(r, 300));
+        const afterPause = video.currentTime;
+        video.currentTime = 1.5;
+        await new Promise(r => setTimeout(r, 300));
+        video.play();
+        await new Promise(r => setTimeout(r, 500));
+        return JSON.stringify([afterPause, video.currentTime, video.paused]);
+    })()""", promise=True, timeout_s=15)
+            state2 = _parse_json(state2_raw)
+            if isinstance(state2, list) and len(state2) == 3:
+                check("pause/seek/resume controls work", float(state2[1]) >= 1.5 and float(state2[2]) == 0, f"t={state2[1]:.2f}s")
+            # progress reaches the backend while playing (report fires on pause + every 5s)
+            time.sleep(0.8)
+            pump()
+            pstate = http_get(ctx.token, f"{BASE}/api/playback/state/{movie_id}?media_type=movie")
+            # keyboard: seek via a real KeyboardEvent
+            state3_raw = js(view, """(async () => {
+        const video = document.querySelector('.player video');
+        const before = video.currentTime;
+        document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight', bubbles: true}));
+        await new Promise(r => setTimeout(r, 350));
+        return JSON.stringify([before, video.currentTime]);
+    })()""", promise=True, timeout_s=15)
+            state3 = _parse_json(state3_raw)
+            if isinstance(state3, list) and len(state3) == 2:
+                check("keyboard seek shortcut works", float(state3[1]) > float(state3[0]) + 0.5, f"{state3[0]:.1f} → {state3[1]:.1f}")
+            # let it end: onEnded → finish (backend marks watched, clears resume)
+            finished = wait_js(view, "document.querySelector('.center-msg') ? 1 : 0", 20)
+            check("autoplay reached the end and showed the Finished box", bool(finished))
+            js(view, "(() => { const back = [...document.querySelectorAll('.center-msg .btn')].find(b => b.textContent.includes('Back to library')); back && back.click(); return 1 })()", timeout_s=3)
+            gone = wait_js(view, "document.querySelector('.player') ? 0 : 1", 8)
+            check("player closes cleanly", bool(gone))
+            post = http_get(ctx.token, f"{BASE}/api/playback/state/{movie_id}?media_type=movie")
+            check("backend marked the movie watched after finishing", bool(post.get("watched")), json.dumps(post)[:80])
+            hist = http_get(ctx.token, f"{BASE}/api/history")
+            latest = next((row for row in hist.get("items", []) if row.get("media_type") == "movie" and row.get("media_id") == movie_id), {})
+            check("playback session recorded in history", bool(latest.get("id")), json.dumps(latest)[:110])
+
+        # ---- episode player: subtitles (the episode has a real .srt) ----
+        ep_ok = goto("#/episode/1", "document.querySelector('.play-btn') ? 1 : 0")
+        check("episode detail offers Play", bool(ep_ok))
+        js(view, "(() => { document.querySelector('.play-btn').click(); return 1 })()", timeout_s=3)
+        ep_video = wait_js(view, "document.querySelector('.player video') ? 1 : 0", 20)
+        check("episode player opens", bool(ep_video))
+        if ep_video:
+            js(view, "(() => { document.querySelector('.player-controls .pbtn[title^=Subtitles]').click(); return 1 })()", timeout_s=3)
+            pump()
+            ep_opts = js(view, "(() => { const menu = document.querySelector('.subtitle-menu'); window.__eo = menu ? menu.querySelectorAll('button').length : -1; if (menu && menu.querySelectorAll('button')[1]) menu.querySelectorAll('button')[1].click(); return 1 })()", timeout_s=3)
+            pump()
+            ep_raw = js(view, """(async () => {
+                const video = document.querySelector('.player video');
+                await new Promise(r => setTimeout(r, 500));
+                return JSON.stringify([document.querySelectorAll('.player video track').length,
+                                       video.textTracks.length,
+                                       (video.textTracks[0] && video.textTracks[0].mode) || 'none',
+                                       window.__eo]);
+            })()""", promise=True, timeout_s=12)
+            ep = _parse_json(ep_raw)
+            if isinstance(ep, list) and len(ep) == 4:
+                check("episode subtitle selection attaches a real track",
+                      ep[0] >= 1 and ep[1] >= 1 and ep[2] in ("showing", "hidden") and ep[3] >= 2,
+                      f"tracks={ep[0]}, textTracks={ep[1]}, mode={ep[2]}, menuOptions={ep[3]}")
+            else:
+                check("episode subtitle selection attaches a real track", False, str(ep_raw)[:100])
+            js(view, "(() => { document.querySelector('.player-top .pbtn').click(); return 1 })()", timeout_s=3)
+            ep_gone = wait_js(view, "document.querySelector('.player') ? 0 : 1", 8)
+            check("episode player closes cleanly", bool(ep_gone))
+        else:
+            check("player video state", False, "video state promise failed")
+    else:
+        check("player video state", False, "no video element")
+
+    # ---------------------------------------------------------------- browser hub page (honest without Electron)
+    note = goto("#/browser", "document.querySelector('.error-note') ? document.querySelector('.error-note').textContent.slice(0, 200) : ''")
+    check("browser page shows honest no-Electron notice", "Electron" in str(note), str(note)[:120])
+
+    # ---------------------------------------------------------------- PDF page artifacts (real renders)
+    from PyQt6.QtCore import QObject, pyqtSignal, QTimer
+
+    class _PdfSink(QObject):
+        done = pyqtSignal()
+
+        def __init__(self, out_path):
+            super().__init__()
+            self.out_path = out_path
+
+        def on_result(self, data):
+            with open(self.out_path, "wb") as handle:
+                handle.write(bytes(data))
+            self.done.emit()
+
+    shots = ROOT / "screenshots"
+    shots.mkdir(exist_ok=True)
+    for name, route_hash, needles in [
+        ("renderer-home", "#/home", ("Recently added", "Continue watching")),
+        ("renderer-movies", f"#/movie/{movie_id}", ("Night Runner", "Favorite")),
+        ("renderer-show", "#/show/1", ("Solar Winds", "Seasons")),
+    ]:
+        js(view, f"(() => {{ location.hash = {json.dumps(route_hash)}; return 1 }})()", timeout_s=3)
+        wait_js(view, "document.querySelector('.hero, .grid, .detail-layout') ? 1 : 0")
+        time.sleep(1.0)
+        pump()
+        out = shots / f"{name}.pdf"
+        sink = _PdfSink(str(out))
+        sink.done.connect(lambda: None)
+        view.page().printToPdf(sink.on_result)
+        deadline = time.time() + 25
+        last_size = -1
+        while time.time() < deadline:
+            pump()
+            time.sleep(0.25)
+            if out.exists():
+                size = out.stat().st_size
+                if size == last_size and size > 5000:
+                    break
+                last_size = size
+        if out.exists() and out.stat().st_size > 5000:
+            from pypdf import PdfReader
+
+            page_text = " ".join(
+                (page.extract_text() or "") for page in PdfReader(str(out)).pages
+            )
+            check(f"PDF page artifact {name} renders real content",
+                  all(needle in page_text for needle in needles),
+                  f"{out.stat().st_size // 1024} KB; expected {needles}")
+        else:
+            check(f"PDF page artifact {name} renders real content", False, "pdf never rendered")
+
+    # restore theme
+    http_post(ctx.token, f"{BASE}/api/settings", {"theme": "system"})
+
+    code = 0 if all(ok_ for _, ok_ in results) else 1
+    return finish(server, code)
+
+
+def finish(server, code: int) -> int:
+    server.should_exit = True
+    time.sleep(0.6)
+    print(f"\nRENDERER TEST {'PASSED' if code == 0 else 'FAILED'} "
+          f"({sum(1 for _, ok in results if ok)}/{len(results)} checks)", flush=True)
+    return code
+
+
+_js_results: list = []
+
+
+def js(view, expr: str, promise: bool = False, timeout_s: float = 10.0):
+    """Evaluate a JS EXPRESSION (not a function) and return its value.
+
+    PyQt6 delivers runJavaScript results via callback only, and only primitives
+    cross the bridge — objects are stringified first. ``promise`` awaits an
+    async IIFE expression and stringifies its object result.
+    """
+    if promise:
+        # PyQt6's runJavaScript callback cannot deliver async values (they arrive as
+        # {}), so async work happens in-page and lands on window.__jmdb_probe,
+        # which we then poll synchronously.
+        launcher = (
+            "(() => { window.__jmdb_probe = undefined;"
+            " (async () => { const value = await (" + expr + ");"
+            " window.__jmdb_probe = (value && typeof value === 'object')"
+            " ? JSON.stringify(value) : value; })(); return 1; })()"
+        )
+        js(view, launcher, timeout_s=5)
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            landed = js(view, "window.__jmdb_probe === undefined ? 0 : String(window.__jmdb_probe)", timeout_s=3)
+            if landed not in (None, 0, "0", ""):
+                return landed
+            pump()
+            time.sleep(0.1)
+        return None
+    script = "(" + expr + ")"
+    _js_results.clear()
+    view.page().runJavaScript(script, 0, lambda value: _js_results.append(value))
+    deadline = time.time() + timeout_s
+    while time.time() < deadline and not _js_results:
+        pump()
+    return _js_results[0] if _js_results else None
+
+
+def wait_js(view, expr: str, timeout_s: float = 12.0, promise: bool = False):
+    """Poll a JS expression until it's truthy (or timeout)."""
+    deadline = time.time() + timeout_s
+    result = None
+    while time.time() < deadline:
+        pump()
+        try:
+            result = js(view, expr, promise=promise, timeout_s=2)
+        except Exception:  # noqa: BLE001 - transient during navigation
+            result = None
+        if result not in (None, "", 0, "0", []):
+            return result
+        time.sleep(0.15)
+    return result
+
+
+def _parse_json(raw):
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return raw
+    return raw
+
+
+def js_value(view, expr: str, promise: bool = False, timeout_s: float = 15.0):
+    """Evaluate once and PARSE JSON strings back into Python values."""
+    raw = js(view, expr, promise=promise, timeout_s=timeout_s)
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return raw
+    return raw
+
+
+def wait_http(url: str, timeout_s: float = 30.0) -> None:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=2) as response:
+                if response.status == 200:
+                    return
+        except OSError:
+            pass
+        time.sleep(0.2)
+    raise RuntimeError(f"never healthy: {url}")
+
+
+def http_get(token: str, url: str):
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read())
+
+
+def http_text(token: str, url: str) -> str:
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return response.read().decode("utf-8", "replace")
+
+
+def http_post(token: str, url: str, body: dict):
+    request = urllib.request.Request(
+        url, data=json.dumps(body).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="PATCH",
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read())
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

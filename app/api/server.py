@@ -111,12 +111,9 @@ def create_app(
     # -- bundled Electron UI (same-origin: cookie auth, no CORS) ------------------
     ui_root = Path(ui_dir) if ui_dir is not None else DEFAULT_UI_DIR
     if (ui_root / "index.html").exists():
-        app.mount(
-            "/app",
-            StaticFiles(directory=str(ui_root), html=True),
-            name="app",
-        )
-
+        # NOTE: the boot route must be registered BEFORE the /app mount:
+        # Starlette matches in registration order, and the static mount would
+        # otherwise shadow /app/boot entirely.
         @app.get("/app/boot")
         async def app_boot(request: Request):
             """Token → HttpOnly session cookie, then into the UI."""
@@ -130,6 +127,12 @@ def create_app(
                 "jmdb_token", token, httponly=True, samesite="strict",
             )
             return response
+
+        app.mount(
+            "/app",
+            StaticFiles(directory=str(ui_root), html=True),
+            name="app",
+        )
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):

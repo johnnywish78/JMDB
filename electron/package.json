@@ -1,0 +1,15 @@
+{
+  "name": "jmdb-desktop",
+  "productName": "JMDB",
+  "version": "1.0.0",
+  "description": "JMDB — Johnny Media Database: Electron desktop frontend",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron smoke.js"
+  },
+  "devDependencies": {
+    "electron": "^44.2.0"
+  }
+}
