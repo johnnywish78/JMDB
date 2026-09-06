@@ -1,0 +1,12 @@
+# Core runtime dependencies
+PyQt6>=6.6
+requests>=2.31
+Pillow>=10.0
+mutagen>=1.47
+
+# Optional but recommended (each enables a subsystem; JMDB degrades
+# gracefully when missing):
+# PyQt6-WebEngine>=6.6     # embedded browser
+# PyQt6-Multimedia>=6.6    # Qt playback backend
+# python-vlc>=3.0          # VLC playback backend (also needs VLC installed)
+# python-mpv>=1.0          # MPV playback backend (also needs libmpv)

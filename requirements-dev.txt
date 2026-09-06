@@ -1,0 +1,4 @@
+-r requirements.txt
+PyQt6-WebEngine>=6.6
+pytest>=8.0
+pytest-qt>=4.4

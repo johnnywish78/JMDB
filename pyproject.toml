@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jmdb"
+version = "1.0.0"
+description = "JMDB — Johnny Media Database: a personal media center for movies, TV, music, and online services."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "JMDB contributors" }]
+dependencies = [
+    "PyQt6>=6.6",
+    "requests>=2.31",
+    "Pillow>=10.0",
+    "mutagen>=1.47",
+]
+
+[project.optional-dependencies]
+webengine = ["PyQt6-WebEngine>=6.6"]
+multimedia = ["PyQt6-Multimedia>=6.6"]
+vlc = ["python-vlc>=3.0"]
+mpv = ["python-mpv>=1.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+]
+
+[project.scripts]
+jmdb = "run:main"
+
+[tool.setuptools]
+packages = { find = { include = ["app*", "ui*"] } }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "ui: tests that require a Qt application (offscreen)",
+    "network_live: tests that hit real third-party APIs",
+]
