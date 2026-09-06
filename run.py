@@ -196,12 +196,18 @@ def main() -> int:
         return run_qt()
 
     if args.backend_only:
-        from app.api.server import run_server
+        from app.api.__main__ import main as run_api
 
         port = args.port or _find_free_port()
-        print(f"JMDB API listening on http://127.0.0.1:{port} (token in JMDB_HOME/api_token.json)")
-        run_server(host="127.0.0.1", port=port, log_level="info" if args.dev else "warning")
-        return 0
+        # the API CLI writes the launch token to JMDB_HOME/api_token.json (0600)
+        from app.config.paths import Paths
+
+        token_file = Paths.create().home / "api_token.json"
+        print(f"JMDB API listening on http://127.0.0.1:{port} (token in {token_file})")
+        return run_api([
+            "--port", str(port),
+            "--token-file", str(token_file),
+        ])
 
     # default: Electron frontend + in-process backend
     try:
