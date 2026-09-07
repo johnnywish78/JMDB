@@ -1,6 +1,6 @@
 import { api } from "../api.js";
-import { el, toast, confirmDialog, promptDialog, formatBytes } from "../ui.js";
-import { store, saveSettings } from "../store.js";
+import { el, clear, toast, confirmDialog, promptDialog, formatBytes } from "../ui.js";
+import { store, saveSettings, on } from "../store.js";
 import { navigate } from "../router.js";
 
 export default async function render(container) {
@@ -34,51 +34,107 @@ export default async function render(container) {
 
   /* ------------------------------------------------ library */
   const librarySection = section("Library locations", "Folders JMDB scans for movies, TV and music. Add a folder, then scan it.");
-  for (const location of library.locations || []) {
-    librarySection.append(el("div", { class: "location-row" },
-      el("span", { class: "path", title: location.path }, location.path),
-      el("span", { class: "status" }, `${location.file_count || 0} files · ${location.last_scan_status || "never scanned"}`),
-      el("button", {
-        class: "btn small",
-        onclick: async () => {
-          try {
-            await api.post(`/api/scan?location_id=${location.id}`, {});
-            toast("Scan started", "success");
-          } catch (error) {
-            toast(error.status === 409 ? "A scan is already running" : error.message, "error");
-          }
-        },
-      }, "Scan"),
-      el("button", {
-        class: "btn small danger",
-        onclick: async () => {
-          const sure = await confirmDialog({
-            title: "Remove this location?",
-            body: `JMDB will stop scanning ${location.path}. Files already in your library are kept.`,
-            confirmLabel: "Remove", danger: true,
-          });
-          if (sure) {
-            await api.del(`/api/library/locations/${location.id}`);
-            navigate("/settings");
-          }
-        },
-      }, "Remove")));
-  }
+  const locationsList = el("div", {});
+  const renderLocations = (locations, summaryData) => {
+    clear(locationsList);
+    for (const location of locations || []) {
+      locationsList.append(el("div", { class: "location-row" },
+        el("span", { class: "path", title: location.path }, location.path),
+        el("span", { class: "status" }, `${location.file_count || 0} files · ${location.last_scan_status || "never scanned"}`),
+        el("button", {
+          class: "btn small",
+          onclick: async () => {
+            try {
+              await api.post(`/api/scan?location_id=${location.id}`, {});
+              toast(`Scan started for ${location.path}`, "success");
+            } catch (error) {
+              toast(error.status === 409 ? "A scan is already running" : error.message, "error");
+            }
+          },
+        }, "Scan"),
+        el("button", {
+          class: "btn small danger",
+          onclick: async () => {
+            const sure = await confirmDialog({
+              title: "Remove this location?",
+              body: `JMDB will stop scanning ${location.path}. Files already in your library are kept.`,
+              confirmLabel: "Remove", danger: true,
+            });
+            if (sure) {
+              await api.del(`/api/library/locations/${location.id}`);
+              navigate("/settings");
+            }
+          },
+        }, "Remove")));
+    }
+    if (!(locations || []).length) {
+      locationsList.append(el("div", { class: "hint" }, "No locations yet — add a folder below."));
+    }
+    const summary = summaryData || {};
+    locationsList.append(el("div", { style: { marginTop: "14px", color: "var(--text-dim)", fontSize: "12.5px" } },
+      `Library: ${summary.movies ?? 0} movies · ${summary.shows ?? 0} shows · ${summary.episodes ?? 0} episodes · ` +
+      `${summary.albums ?? 0} albums · ${summary.tracks ?? 0} tracks · ${summary.missing ?? 0} missing files`));
+  };
+  renderLocations(library.locations, library.summary);
+  librarySection.append(locationsList);
+
+  // live scan status row (WS events + /api/scan/status fallback)
+  const scanStatus = el("div", { class: "scan-status hidden" });
+  librarySection.append(scanStatus);
+  const updateScanStatus = (status) => {
+    if (status && status.running) {
+      scanStatus.classList.remove("hidden");
+      const phase = status.phase === "matching" ? "matching media" : status.phase === "artwork" ? "attaching artwork" : "indexing files";
+      scanStatus.textContent = `Scanning — ${phase} · ${status.files_seen || 0} files seen · ${status.files_indexed || 0} indexed`;
+    } else {
+      scanStatus.classList.add("hidden");
+    }
+  };
+  updateScanStatus(await api.get("/api/scan/status").catch(() => null));
+  // live updates while the settings page is open
+  const offProgress = on("scan_progress", (data) => updateScanStatus({
+    running: true, phase: data.phase, files_seen: data.files_seen, files_indexed: data.files_indexed,
+  }));
+  const offFinished = on("scan_finished", async () => {
+    updateScanStatus(null);
+    try {
+      const fresh = await api.get("/api/library");
+      renderLocations(fresh.locations, fresh.summary);
+    } catch { /* page navigation handles refresh */ }
+  });
+  const offWatcher = setInterval(() => {
+    if (!container.isConnected) {
+      offProgress(); offFinished(); clearInterval(offWatcher);
+    }
+  }, 2000);
+
   const addRow = el("div", { style: { display: "flex", gap: "10px", marginTop: "12px" } });
-  const pathInput = el("input", { class: "input", placeholder: "/path/to/media folder", style: { flex: "1" } });
+  const pathInput = el("input", { class: "input", placeholder: "/path/to/media folder (or Browse…)", style: { flex: "1" } });
   addRow.append(
     pathInput,
+    el("button", {
+      class: "btn", title: "Choose a folder with the native picker",
+      onclick: async () => {
+        if (!window.jmdb?.dialog?.pickFolder) {
+          toast("Folder picker is available in the desktop app — type a path instead", "info");
+          return;
+        }
+        const picked = await window.jmdb.dialog.pickFolder();
+        if (picked) { pathInput.value = picked; pathInput.focus(); }
+      },
+    }, "Browse…"),
     el("button", {
       class: "btn primary", onclick: async () => {
         const path = pathInput.value.trim();
         if (!path) return;
         try {
-          await api.post("/api/library/locations", { path });
+          const result = await api.post("/api/library/locations", { path });
+          // only real success gets a success toast; the API raises 400/409 otherwise
           pathInput.value = "";
-          toast("Location added — run a scan to index it", "success");
-          navigate("/settings");
+          toast(result.message || "Location added — run a scan to index it", "success");
+          renderLocations(result.locations, library.summary);
         } catch (error) {
-          toast(`Couldn't add: ${error.message}`, "error");
+          toast(error.status === 409 ? "Already in your library" : `Couldn't add: ${error.message}`, "error");
         }
       },
     }, "Add location"),
@@ -87,16 +143,13 @@ export default async function render(container) {
         try {
           await api.post("/api/scan", {});
           toast("Full scan started", "success");
+          updateScanStatus({ running: true, phase: "indexing", files_seen: 0, files_indexed: 0 });
         } catch (error) {
           toast(error.status === 409 ? "A scan is already running" : error.message, "error");
         }
       },
     }, "Scan everything"));
   librarySection.append(addRow);
-  const summary = library.summary || {};
-  librarySection.append(el("div", { style: { marginTop: "14px", color: "var(--text-dim)", fontSize: "12.5px" } },
-    `Library: ${summary.movies ?? 0} movies · ${summary.shows ?? 0} shows · ${summary.episodes ?? 0} episodes · ` +
-    `${summary.albums ?? 0} albums · ${summary.tracks ?? 0} tracks · ${summary.missing ?? 0} missing files`));
   container.append(librarySection);
 
   /* ------------------------------------------------ playback */
@@ -124,17 +177,28 @@ export default async function render(container) {
       return select;
     })());
   browserSection.append(engineRow);
+  browserSection.append(numberRow("Default zoom for new tabs", "Percent (50–300). Existing tabs keep their own zoom.", "browser_default_zoom", values.browser_default_zoom, 50, 300));
   browserSection.append(toggleRow("Allow cookies in Browser Hub", "Persistent logins via the app session partition", "browser_allow_cookies", values.browser_allow_cookies));
   browserSection.append(toggleRow("Enable JavaScript", "Disabling breaks most modern sites", "browser_enable_javascript", values.browser_enable_javascript));
   container.append(browserSection);
 
   /* ------------------------------------------------ metadata */
-  const metaSection = section("Metadata & artwork", "Providers JMDB queries for movie/show/music details. TMDB and OMDb need free API keys; without keys only local file metadata is used. TV Time and EMDB have no public API and are never queried.");
-  const providerNote = el("div", { class: "setting-row" },
-    el("div", { class: "labels" },
-      el("div", { class: "t" }, "Provider keys"),
-      el("div", { class: "s" }, "Stored via your environment/secrets — the app never logs them.")));
-  metaSection.append(providerNote);
+  const metaSection = section("Metadata & artwork", "Where JMDB gets its data. Movies/TV/people are queried in the order shown until a provider answers; music uses the music chain. Providers without a key are skipped honestly — local file metadata is always kept. TV Time and EMDB have no public API and are never queried.");
+  try {
+    const catalog = await api.get("/api/providers");
+    metaSection.append(el("div", { class: "provider-chains" },
+      el("div", { class: "chain" },
+        el("span", { class: "chain-label" }, "Movies / TV: "),
+        (catalog.movie_tv_chain || []).map((id, i) => el("span", { class: "chain-item" }, `${i ? " → " : ""}${id}`))),
+      el("div", { class: "chain" },
+        el("span", { class: "chain-label" }, "Music: "),
+        (catalog.music_chain || []).map((id, i) => el("span", { class: "chain-item" }, `${i ? " → " : ""}${id}`)))));
+    for (const provider of catalog.items || []) {
+      metaSection.append(providerCard(provider));
+    }
+  } catch (error) {
+    metaSection.append(el("div", { class: "hint" }, `Provider catalog unavailable: ${error.message}`));
+  }
   metaSection.append(
     toggleRow("Auto-refresh metadata", "Refresh stale details automatically when items appear", "auto_enrich_metadata", values.auto_enrich_metadata),
     numberRow("Refresh after days", "Re-query metadata older than this many days", "auto_refresh_metadata_days", values.auto_refresh_metadata_days, 1, 365),
@@ -171,6 +235,85 @@ function section(title, hint) {
   return el("div", { class: "settings-section" },
     el("h3", {}, title),
     hint ? el("p", { class: "hint" }, hint) : el("span"));
+}
+
+/** One provider row: honest state, masked key, save + real Test action. */
+function providerCard(provider) {
+  const card = el("div", { class: `provider-card ${provider.configured ? "ok" : ""}` });
+
+  const state = provider.requires_key
+    ? (provider.configured
+        ? el("span", { class: "badge good" }, `key set${provider.key_source ? ` (${provider.key_source})` : ""}`)
+        : el("span", { class: "badge" }, "API key required"))
+    : el("span", { class: "badge good" }, provider.id === "tvtime" ? "no public API" : "no key needed");
+
+  const head = el("div", { class: "setting-row" },
+    el("div", { class: "labels" },
+      el("div", { class: "t" },
+        el("a", { href: provider.website || "#", target: "_blank", rel: "noreferrer noopener" }, provider.name),
+        " ", state),
+      el("div", { class: "s" }, provider.supplies || "")),
+    el("span", { class: "provider-used-for" }, provider.used_for || ""));
+  card.append(head);
+
+  if (provider.id === "tvtime") {
+    card.append(el("div", { class: "hint" },
+      "TV Time has no public API — it opens as a website from Services; nothing to configure here."));
+    return card;
+  }
+  if (provider.health && provider.health.last_error) {
+    card.append(el("div", { class: "hint provider-error" }, `Last provider error: ${provider.health.last_error}`));
+  }
+
+  const input = el("input", {
+    class: "input", type: "password", autocomplete: "off", spellcheck: "false",
+    placeholder: provider.key_masked ? `current: ${provider.key_masked}` : "paste API key",
+    style: { width: "240px" },
+  });
+  const result = el("span", { class: "provider-test-result" });
+  const saveBtn = el("button", {
+    class: "btn small",
+    onclick: async () => {
+      const value = input.value.trim();
+      if (!value && !provider.key_masked) { result.textContent = ""; return; }
+      try {
+        const res = await api.put(`/api/providers/${provider.id}/key`, { key: value });
+        input.value = "";
+        input.placeholder = `current: ${res.key_masked}`;
+        result.textContent = "";
+        toast(res.message || "Key saved", "success");
+        navigate("/settings"); // refresh configured badges honestly
+      } catch (error) {
+        toast(`Couldn't save key: ${error.message}`, "error");
+      }
+    },
+  }, provider.key_masked ? "Update key" : "Save key");
+
+  const testBtn = provider.testable ? el("button", {
+    class: "btn small",
+    onclick: async () => {
+      result.textContent = "testing…";
+      result.className = "provider-test-result";
+      try {
+        const candidate = input.value.trim();
+        const res = await api.post(`/api/providers/${provider.id}/test`, candidate ? { key: candidate } : {});
+        result.textContent = `${res.ok ? "✓" : "✗"} ${res.detail || ""}`;
+        result.className = `provider-test-result ${res.ok ? "good" : "bad"}`;
+      } catch (error) {
+        result.textContent = `✗ ${error.message}`;
+        result.className = "provider-test-result bad";
+      }
+    },
+  }, "Test") : null;
+
+  const controls = el("div", { class: "provider-controls" }, input, saveBtn);
+  if (testBtn) controls.append(testBtn);
+  controls.append(result);
+  if (provider.env_var) {
+    controls.append(el("span", { class: "provider-env" }, `env override: ${provider.env_var}`));
+  }
+  card.append(controls);
+  return card;
 }
 
 async function persist(patch) {

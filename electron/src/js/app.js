@@ -131,26 +131,42 @@ function buildNav() {
 function wireGlobalEvents() {
   // scans
   on("scan_started", () => {
-    document.getElementById("scan-pill").classList.remove("hidden");
+    const pill = document.getElementById("scan-pill");
+    pill.classList.remove("hidden");
+    const text = document.getElementById("scan-pill-text");
+    if (text) text.textContent = "Scanning…";
   });
   on("scan_progress", (data) => {
     const pill = document.getElementById("scan-pill");
     pill.classList.remove("hidden");
     const text = document.getElementById("scan-pill-text");
-    if (text) text.textContent = data.current_path ? `Scanning ${data.current_path.split("/").pop()}…` : "Scanning…";
+    if (text) {
+      const seen = data.files_seen ? ` — ${data.files_seen} files` : "";
+      if (data.phase === "matching") text.textContent = `Matching media${seen}`;
+      else if (data.phase === "artwork") text.textContent = `Attaching artwork${seen}`;
+      else if (data.paused) text.textContent = "Scan paused";
+      else {
+        const where = data.current_path ? ` ${String(data.current_path).split("/").pop()}` : "";
+        text.textContent = `Scanning${where}${seen}`;
+      }
+    }
   });
   const hidePill = () => document.getElementById("scan-pill").classList.add("hidden");
   on("scan_finished", (data) => {
     hidePill();
-    if (data && data.result) {
-      const result = data.result;
+    if (!data) return;
+    if (data.status === "completed") {
       toast(
-        `Scan finished: ${result.files_indexed || 0} files indexed, ` +
-        `${result.movies_added || 0} movies / ${result.shows_added || 0} shows / ` +
-        `${result.episodes_added || 0} episodes / ${result.tracks_added || 0} tracks added`,
+        `Scan finished in ${Math.max(1, Math.round(data.duration_seconds || 0))}s: ` +
+        `${data.files_indexed || 0} files indexed, ` +
+        `${data.movies_added || 0} movies / ${data.shows_added || 0} shows / ` +
+        `${data.episodes_added || 0} episodes / ${data.tracks_added || 0} tracks added` +
+        (data.errors ? ` (${data.errors} errors)` : ""),
         "success");
-      refreshCurrentPage();
+    } else {
+      toast(`Scan ${data.status || "finished"}${data.message ? `: ${data.message}` : ""}`, "error");
     }
+    refreshCurrentPage();
   });
   on("scan_failed", (data) => {
     hidePill();

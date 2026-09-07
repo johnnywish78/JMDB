@@ -27,18 +27,22 @@ export default async function render(container) {
     actions.append(el("button", {
       class: "btn primary",
       onclick: async () => {
-        if (service.requires_drm) {
-          await openExternally(service.url);
-        } else if (service.embedded === false) {
-          await openExternally(service.url);
-        } else {
+        // The Electron Browser Hub is part of this app: if the hub bridge
+        // exists, embedded opening is ALWAYS possible (never gated on
+        // PyQt6-WebEngine, which the desktop app does not use).
+        if (window.jmdb?.hub && !service.requires_drm) {
           navigate("/browser");
           setTimeout(() => {
             if (window.jmdb?.hub) window.jmdb.hub.createTab(service.url);
           }, 250);
+        } else if (service.requires_drm) {
+          await openExternally(service.url);
+        } else {
+          // plain browser session: open in a new tab of THIS browser
+          window.open(service.url, "_blank", "noopener");
         }
       },
-    }, icon("globe"), "Open in Browser Hub"));
+    }, icon("globe"), service.requires_drm ? "Open (system browser)" : "Open in Browser Hub"));
 
     actions.append(el("button", {
       class: "btn",

@@ -1,4 +1,5 @@
 import { api } from "../api.js";
+import { metadataSourceBadge } from "./movie-detail.js";
 import { el, icon } from "../ui.js";
 import { factBox } from "../components.js";
 import { albumCard, section } from "../components.js";
@@ -31,6 +32,8 @@ export default async function render(container, route, params) {
       el("div", { class: "section-head" }, el("h2", {}, "About")),
       el("p", { style: { color: "var(--text-dim)", lineHeight: "1.7", margin: "0" } }, artist.biography)));
   }
+
+  info.append(el("div", { class: "chip-row", style: { marginTop: "8px" } }, metadataSourceBadge(artist)));
 
   info.append(section("Albums", (artist.albums || []).map((album) =>
     albumCard(album, { onOpen: () => navigate(`/album/${album.id}`) }))));

@@ -41,6 +41,14 @@ def pump() -> None:
         time.sleep(0.02)
 
 
+def num(value) -> int:
+    """js() delivers JS numbers as int/float (not str) — coerce any shape to int."""
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def check(name: str, ok: bool, detail: str = "") -> None:
     results.append((name, bool(ok)))
     print(f"{'PASS' if ok else 'FAIL'} — {name}" + (f" — {detail}" if detail else ""), flush=True)
@@ -190,6 +198,117 @@ def main() -> int:
     check("light theme CSS variables live", bg.startswith("#f") or bg.startswith("rgb(24"), f"--bg={bg}")
     js(view, "(() => { fetch('/api/settings', {headers: {'Content-Type': 'application/json'}, method: 'PATCH', body: JSON.stringify({theme: 'system'})}); return 1 })()", timeout_s=3)
     pump()
+
+    # ---------------------------------------------------------------- settings acceptance
+    # theme chips: three SEPARATE controls (used to read as "DarkLightSystem")
+    chips = js_value(view, "JSON.stringify([])", timeout_s=3)  # noop warmup
+    goto("#/settings", "document.querySelectorAll('.settings-section').length >= 6")
+    chip_count = int(js(view, "document.querySelectorAll('.chip-row .chip').length", timeout_s=3) or 0)
+    chip_labels = js_value(view, "JSON.stringify([...document.querySelectorAll('.chip-row .chip')].map(c => c.textContent.trim()))")
+    check("theme rendered as 3 separate chips", chip_count == 3, f"{chip_labels}")
+
+    # provider cards: real provider names, key badges, chain order, Browse picker
+    goto("#/settings", "document.querySelectorAll('.provider-card').length >= 8")
+    provider_text = js_value(view, "document.body.textContent")
+    for provider_name in ("TMDB", "OMDb", "TVmaze", "MusicBrainz", "TheAudioDB", "Last.fm", "Fanart.tv", "TV Time"):
+        check(f"provider card present: {provider_name}", provider_name in provider_text, "")
+    chain_text = js_value(view, "document.querySelector('.provider-chains') ? document.querySelector('.provider-chains').textContent : ''")
+    check("provider chain order is visible", "tmdb" in chain_text and "musicbrainz" in chain_text, chain_text[:70])
+    browse = int(js(view, "document.querySelectorAll('button').length && [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === 'Browse…').length", timeout_s=3) or 0)
+    check("native folder picker button offered", browse == 1, f"{browse} button(s)")
+    tvtime_note = js_value(view, "document.body.textContent.includes('TV Time has no public API') ? 'yes' : 'no'")
+    check("TV Time honestly documented as no-API", tvtime_note == "yes", tvtime_note)
+
+    # add location: INVALID path → error toast (no fake success)
+    invalid_click = js(view, """(() => {
+        const input = document.querySelector('input[placeholder*="media folder"]');
+        if (!input) return 'NO-INPUT';
+        input.value = '/nonexistent/renderer-path';
+        const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Add location');
+        if (!btn) return 'NO-BUTTON';
+        btn.click();
+        return 'CLICKED';
+    })()""", timeout_s=5)
+    error_toast = wait_js(view, "document.querySelector('.toast.error') ? document.querySelector('.toast.error').textContent : ''", 8.0)
+    check("invalid location shows an ERROR toast",
+          "Couldn't add" in str(error_toast) and invalid_click == "CLICKED",
+          f"click={invalid_click} toast={str(error_toast)[:70]}")
+    fake_success = js_value(view, "document.querySelector('.toast.success') ? document.querySelector('.toast.success').textContent : ''")
+    check("no fake success toast for invalid path", "Location added" not in str(fake_success), str(fake_success)[:60])
+
+    # add location: VALID path → success toast + the row appears
+    valid_dir = home / "renderer-media"
+    valid_dir.mkdir(exist_ok=True)
+    valid_click = js(view, """(() => {
+        const input = document.querySelector('input[placeholder*="media folder"]');
+        if (!input) return 'NO-INPUT';
+        input.value = VALIDDIRPLACEHOLDER;
+        const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Add location');
+        if (!btn) return 'NO-BUTTON';
+        btn.click();
+        return 'CLICKED';
+    })()""".replace("VALIDDIRPLACEHOLDER", json.dumps(str(valid_dir))), timeout_s=5)
+    added = wait_js(view, "document.body.textContent.includes('renderer-media') ? 1 : 0", 8.0)
+    detail = str(valid_dir)
+    if added != "1" or valid_click != "CLICKED":
+        # diagnostics: what did the toasts / location rows / console actually say?
+        diag = js(view, "JSON.stringify({toasts: [...document.querySelectorAll('.toast')].map(t => t.textContent.slice(0, 70)), rows: [...document.querySelectorAll('.location-row .path')].map(p => p.textContent)})", timeout_s=5)
+        detail = f"click={valid_click} diag={str(diag)[:220]}"
+    check("valid location appears in the list", num(added) == 1 and valid_click == "CLICKED", detail)
+
+    # ---------------------------------------------------------------- services page
+    goto("#/services", "document.querySelectorAll('.service-card').length")
+    service_names = js_value(view, "JSON.stringify([...document.querySelectorAll('.service-card h3')].map(h => h.textContent.trim()))")
+    names = set(service_names if isinstance(service_names, list) else json.loads(service_names))
+    check("services page shows exactly the four services",
+          names == {"YouTube", "Telegram", "Spotify", "TV Time"}, str(sorted(names)))
+    hub_buttons = int(js(view, "[...document.querySelectorAll('.service-card button')].filter(b => b.textContent.includes('Browser Hub')).length", timeout_s=3) or 0)
+    check("each service offers 'Open in Browser Hub'", hub_buttons == 4, f"{hub_buttons} buttons")
+    # .note elements include the embedded-Hub hint text; only URL notes count
+    urls = js_value(view, "JSON.stringify([...document.querySelectorAll('.service-card .note')].map(n => n.textContent.trim()).filter(txt => txt.startsWith('https://')))")
+    url_list = urls if isinstance(urls, list) else (json.loads(urls) if isinstance(urls, str) else [])
+    check("service URLs are the official sites",
+          len(url_list) == 4 and all(str(u).startswith("https://") for u in url_list), str(url_list)[:100])
+
+    # ---------------------------------------------------------------- metadata transparency
+    goto(f"#/movie/{movie_id}", "document.querySelectorAll('.badge.outline').length")
+    meta_badge = js_value(view, "[...document.querySelectorAll('.badge.outline')].map(b => b.textContent).find(t => t.startsWith('Metadata:')) || ''")
+    check("movie detail shows metadata source badge", meta_badge.startswith("Metadata:"), meta_badge)
+
+    # ---------------------------------------------------------------- scan progress over WebSocket in the real UI
+    # Instrument FIRST: latches record the pill flash and every toast text even
+    # when a scan finishes in milliseconds — polling alone can miss a 1ms window.
+    js(view, """(() => {
+        window.__pill_seen = false;
+        window.__toasts_seen = [];
+        const pill = document.getElementById('scan-pill');
+        if (!pill) return 'NO-PILL';
+        if (!pill.classList.contains('hidden')) window.__pill_seen = true;
+        // MutationObserver with old values: a hidden->visible->hidden sequence
+        // leaves a record whose oldValue lacks 'hidden' even if batched.
+        new MutationObserver((records) => {
+            for (const r of records) {
+                if (!(r.oldValue || '').includes('hidden')) window.__pill_seen = true;
+            }
+        }).observe(pill, {attributes: true, attributeFilter: ['class'], attributeOldValue: true});
+        // belt and braces: sample the pill and toasts every 40ms
+        setInterval(() => {
+            if (!pill.classList.contains('hidden')) window.__pill_seen = true;
+            for (const t of document.querySelectorAll('.toast')) window.__toasts_seen.push(t.textContent);
+        }, 40);
+        return 'ARMED';
+    })()""", timeout_s=5)
+    scan_started = js(view, """(async () => {
+        const res = await fetch('/api/scan', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+        return res.status;
+    })()""", promise=True, timeout_s=10)
+    check("scan started from the page", str(scan_started) == "200", f"HTTP {scan_started}")
+    pill_visible = wait_js(view, "window.__pill_seen ? 1 : 0", 20.0)
+    check("scan pill becomes visible while scanning", num(pill_visible) == 1, "")
+    finished_toast = wait_js(view, "window.__toasts_seen.some(t => t.includes('Scan finished')) ? 1 : 0", 25.0)
+    check("scan completion toast appears (WS-driven)", num(finished_toast) == 1, "")
+    pill_hidden = wait_js(view, "document.getElementById('scan-pill').classList.contains('hidden') ? 1 : 0", 15.0)
+    check("scan pill returns to idle after completion", num(pill_hidden) == 1, "")
 
     # ---------------------------------------------------------------- subtitles endpoint (SRT → WebVTT)
     srt = next(tree.glob("TV/**/Solar.Winds.S01E01*.srt"), None)

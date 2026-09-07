@@ -6,7 +6,7 @@
  * browser handling, and the strict preload bridge. The renderer is plain
  * same-origin web content served by the backend — it never sees Node.
  */
-const { app, BrowserWindow, ipcMain, session, nativeTheme } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, session, nativeTheme } = require("electron");
 const path = require("node:path");
 const { URL } = require("node:url");
 
@@ -155,6 +155,9 @@ async function boot() {
     onExternal: (url) => ExternalBrowser.open(url),
   });
 
+  // hub-tab permission requests surface as the in-page JPNH-style dialog
+  permissions.setHubLookup((wc) => hub != null && hub.isTabWebContents(wc));
+
   createWindow();
 
   const bootUrl = new URL("/app/boot", info.url);
@@ -197,6 +200,16 @@ function registerIpc() {
     return ExternalBrowser.open(url);
   });
 
+  // native folder picker for "Add location" (cancel → null, never a fake path)
+  ipcMain.handle("dialog:pickFolder", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose a media folder",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || !result.filePaths.length) return null;
+    return result.filePaths[0];
+  });
+
   ipcMain.handle("hub:createTab", (_e, url) => hub.createTab(url));
   ipcMain.handle("hub:closeTab", (_e, id) => hub.closeTab(id));
   ipcMain.handle("hub:activateTab", (_e, id) => hub.activateTab(id));
@@ -213,8 +226,15 @@ function registerIpc() {
   ipcMain.handle("hub:tabs", () => hub.tabSummaries());
   ipcMain.handle("hub:setBounds", (_e, rect) => hub.setBounds(rect));
   ipcMain.handle("hub:setVisible", (_e, visible) => hub.setVisible(visible));
-  ipcMain.handle("hub:history", () => hub.recentHistory());
+  ipcMain.handle("hub:history", (_e, query) => hub.recentHistory(query));
   ipcMain.handle("hub:clearHistory", () => hub.clearHistory());
+  ipcMain.handle("hub:togglePin", (_e, id) => hub.togglePin(id));
+  ipcMain.handle("hub:favorites", () => hub.favoritesList());
+  ipcMain.handle("hub:switchTab", (_e, direction) => hub.switchTab(direction));
+  ipcMain.handle("hub:print", () => hub.print());
+  ipcMain.handle("hub:exportPdf", () => hub.exportPdf());
+  ipcMain.handle("hub:clearData", (_e, types) => hub.clearData(types));
+  ipcMain.handle("hub:setDefaultZoom", (_e, percent) => hub.setDefaultZoom(percent));
 
   ipcMain.handle("downloads:list", () => downloads.list());
   ipcMain.handle("downloads:cancel", (_e, id) => downloads.cancel(id));

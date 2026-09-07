@@ -4,16 +4,9 @@
  * (find bar, downloads, history, DRM notice). When the user navigates to any
  * other app page, the views are hidden. */
 import { api } from "../api.js";
-import { el, clear, icon } from "../ui.js";
-import { store } from "../store.js";
-
-const SEARCH_ENGINES = {
-  duckduckgo: "https://duckduckgo.com/?q=",
-  google: "https://www.google.com/search?q=",
-  bing: "https://www.bing.com/search?q=",
-  brave: "https://search.brave.com/search?q=",
-  startpage: "https://www.startpage.com/sp/search?query=",
-};
+import { el, clear, icon, toast, confirmDialog } from "../ui.js";
+import { store, saveSettings } from "../store.js";
+import { SEARCH_ENGINES, resolveAddressInput } from "../address.js";
 
 export default async function render(container, route) {
   const hub = window.jmdb?.hub;
@@ -25,15 +18,24 @@ export default async function render(container, route) {
 
   container.classList.add("full-bleed");
   await hub.setVisible(true);
+  // keep main's new-tab zoom in sync with the profile setting
+  if (store.settings.browser_default_zoom) {
+    hub.setDefaultZoom(store.settings.browser_default_zoom).catch(() => {});
+  }
 
-  const engine = SEARCH_ENGINES[store.settings.browser_search_engine] || SEARCH_ENGINES.duckduckgo;
+  const engineKey = store.settings.browser_search_engine || "duckduckgo";
+  const engine = SEARCH_ENGINES[engineKey] || SEARCH_ENGINES.duckduckgo;
+  /** Resolve address-bar input against the CONFIGURED search engine:
+   * URLs/domains pass through; anything else becomes a search URL. */
+  const resolveInput = (input) => resolveAddressInput(input, engine);
 
   /* ------------------------------------------------------------- DOM */
   const root = el("div", { class: "hub" });
   const tabsRow = el("div", { class: "hub-tabs" });
   const toolbar = el("div", { class: "hub-toolbar" });
+  const favBar = el("div", { class: "hub-favs hidden" });
   const content = el("div", { class: "hub-content" });
-  root.append(tabsRow, toolbar, content);
+  root.append(tabsRow, toolbar, favBar, content);
   container.append(root);
 
   // back / forward / reload / home
@@ -57,9 +59,14 @@ export default async function render(container, route) {
   const historyBtn = toolbarButton("History", "M3 12a9 9 0 1 0 3-6.7M3 3v6h6M12 7v5l3.5 2");
   const bookmarkBtn = toolbarButton("Bookmark this page", "M6 3.5h12V21l-6-4.2L6 21z");
   const externalBtn = toolbarButton("Open in external browser", "M14 4h6v6M20 4l-9 9M19 13v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6");
+  const zoomOutBtn = toolbarButton("Zoom out (Ctrl+-)", "M5 12h14");
+  const zoomInBtn = toolbarButton("Zoom in (Ctrl+=)", "M12 5v14M5 12h14");
+  const pinBtn = toolbarButton("Pin this tab as a favorite", "M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z");
+  const menuBtn = toolbarButton("Browser menu", "M4 6h16M4 12h16M4 18h16");
 
-  toolbar.append(backBtn, forwardBtn, reloadBtn, homeBtn, addressBar, zoomBadge,
-    findBtn, downloadsBtn, historyBtn, bookmarkBtn, externalBtn);
+  toolbar.append(backBtn, forwardBtn, reloadBtn, homeBtn, addressBar,
+    zoomOutBtn, zoomInBtn, zoomBadge,
+    findBtn, downloadsBtn, historyBtn, bookmarkBtn, pinBtn, externalBtn, menuBtn);
 
   const underlay = el("div", { class: "underlay" },
     el("div", {},
@@ -87,9 +94,13 @@ export default async function render(container, route) {
   externalBtn.addEventListener("click", () => {
     if (activeTab?.url) window.jmdb.external.open(activeTab.url);
   });
+  zoomInBtn.addEventListener("click", () => hub.zoom("in").then(refreshZoom));
+  zoomOutBtn.addEventListener("click", () => hub.zoom("out").then(refreshZoom));
+  pinBtn.addEventListener("click", () => { if (activeTab) hub.togglePin(activeTab.id); });
+  menuBtn.addEventListener("click", () => toggleMenu());
 
   addressInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") hub.navigate(addressInput.value);
+    if (event.key === "Enter") hub.navigate(resolveInput(addressInput.value));
     if (event.key === "Escape") addressInput.blur();
   });
   addressInput.addEventListener("focus", () => addressInput.select());
@@ -128,6 +139,8 @@ export default async function render(container, route) {
     else if (ctrl && key === "l") { event.preventDefault(); addressInput.focus(); }
     else if (ctrl && key === "r") { event.preventDefault(); hub.reload(); }
     else if (ctrl && key === "f") { event.preventDefault(); toggleFind(true); }
+    else if (ctrl && key === "p") { event.preventDefault(); hub.print(); }
+    else if (ctrl && event.key === "Tab") { event.preventDefault(); hub.switchTab(event.shiftKey ? -1 : 1); }
     else if (ctrl && (event.key === "+" || event.key === "=")) { event.preventDefault(); hub.zoom("in").then(refreshZoom); }
     else if (ctrl && key === "-") { event.preventDefault(); hub.zoom("out").then(refreshZoom); }
     else if (ctrl && key === "0") { event.preventDefault(); hub.zoom("reset").then(refreshZoom); }
@@ -158,6 +171,7 @@ export default async function render(container, route) {
         globe.textContent = "◉";
         node.append(globe);
       }
+      if (tab.pinned) node.append(el("span", { class: "pin-star", title: "Pinned favorite" }, "★"));
       node.append(el("span", { class: "label" }, tab.title || tab.url || "New tab"));
       const close = el("button", { class: "close", title: "Close tab (Ctrl+W)", onclick: (event) => { event.stopPropagation(); hub.closeTab(tab.id); } }, "×");
       node.append(close);
@@ -176,6 +190,8 @@ export default async function render(container, route) {
     const isHttps = String(activeTab.url || "").startsWith("https://");
     lockIcon.style.color = isHttps ? "var(--good)" : "var(--text-faint)";
     backBtn.disabled = !activeTab.canGoBack;
+    pinBtn.classList.toggle("pinned", Boolean(activeTab.pinned));
+    pinBtn.title = activeTab.pinned ? "Unpin this tab" : "Pin this tab as a favorite";
     refreshZoom();
     document.title = activeTab.title ? `${activeTab.title} — JMDB` : "JMDB";
   }
@@ -243,16 +259,165 @@ export default async function render(container, route) {
     content.append(downloadsPanel);
   }
 
+  /* ------------------------------------------------------------- favorites bar */
+  let favSignature = "";
+  async function renderFavorites() {
+    const favs = await hub.favorites().catch(() => []);
+    clear(favBar);
+    favBar.classList.toggle("hidden", !favs.length);
+    for (const fav of favs) {
+      favBar.append(el("button", {
+        class: "fav-chip", title: fav.url,
+        onclick: () => hub.navigate(fav.url),
+      }, `★ ${fav.name || fav.url}`));
+    }
+  }
+
+  /* ------------------------------------------------------------- hub menu */
+  let menuPanel = null;
+  function closeMenu() { menuPanel?.remove(); menuPanel = null; }
+  async function toggleMenu(force) {
+    if (force === false || menuPanel) { closeMenu(); return; }
+
+    const engineSelect = el("select", { class: "select" },
+      ...Object.keys(SEARCH_ENGINES).map((key) => el("option", {
+        value: key,
+        selected: key === (store.settings.browser_search_engine || "duckduckgo") ? "selected" : null,
+      }, key[0].toUpperCase() + key.slice(1))));
+    engineSelect.addEventListener("change", async () => {
+      try {
+        await saveSettings({ browser_search_engine: engineSelect.value });
+        addressInput.placeholder = `Search with ${engineSelect.value} or enter address`;
+        toast(`Search engine set to ${engineSelect.value}`, "success");
+      } catch {
+        toast("Couldn't save the search engine", "error");
+      }
+    });
+
+    const zoomInput = el("input", {
+      class: "input", type: "number", min: "50", max: "300",
+      value: String(store.settings.browser_default_zoom || 100),
+      style: { width: "90px" },
+    });
+    zoomInput.addEventListener("change", async () => {
+      const value = Math.min(300, Math.max(50, Number(zoomInput.value) || 100));
+      zoomInput.value = String(value);
+      try {
+        await saveSettings({ browser_default_zoom: value });
+        await hub.setDefaultZoom(value);
+        toast(`New tabs will open at ${value}% zoom`, "success");
+      } catch {
+        toast("Couldn't save the default zoom", "error");
+      }
+    });
+
+    const cacheCb = el("input", { type: "checkbox", checked: "checked" });
+    const cookiesCb = el("input", { type: "checkbox" });
+    const historyCb = el("input", { type: "checkbox" });
+    const checkRow = (cb, label, sub) => el("label", { class: "menu-check" }, cb,
+      el("span", {}, label, el("span", { class: "s" }, sub)));
+    const clearBtn = el("button", { class: "btn small danger" }, "Clear browsing data");
+    clearBtn.addEventListener("click", async () => {
+      const types = [
+        ...(cacheCb.checked ? ["cache"] : []),
+        ...(cookiesCb.checked ? ["cookies"] : []),
+        ...(historyCb.checked ? ["history"] : []),
+      ];
+      if (!types.length) { toast("Pick at least one data type", "info"); return; }
+      const sure = await confirmDialog({
+        title: "Clear browsing data?",
+        body: "This clears the selected Browser Hub data. Clearing cookies signs you out of sites you opened in the Hub. This cannot be undone.",
+        confirmLabel: "Clear", danger: true,
+      });
+      if (!sure) return;
+      const result = await hub.clearData(types).catch((error) => ({ ok: false, error: String(error) }));
+      if (result?.ok) {
+        toast(`Cleared: ${Object.keys(result.cleared || {}).join(", ")}`, "success");
+        if (types.includes("history") && historyOpen) await renderHistory();
+      } else {
+        toast(`Couldn't clear data: ${result?.error || "unknown error"}`, "error");
+      }
+    });
+
+    const printBtn = el("button", { class: "btn small" }, "Print this page…");
+    printBtn.addEventListener("click", () => { hub.print(); closeMenu(); });
+    const pdfBtn = el("button", { class: "btn small" }, "Save page as PDF…");
+    pdfBtn.addEventListener("click", async () => {
+      closeMenu();
+      const result = await hub.exportPdf().catch((error) => ({ ok: false, error: String(error) }));
+      if (result?.ok) toast(`PDF saved to ${result.path}`, "success");
+      else if (result?.cancelled) toast("PDF export cancelled", "info");
+      else toast(`PDF export failed: ${result?.error || "unknown error"}`, "error");
+    });
+
+    menuPanel = el("div", { class: "hub-menu" },
+      el("div", { class: "menu-head" }, el("strong", {}, "Browser settings"),
+        el("button", { class: "btn small", onclick: () => closeMenu() }, "Close")),
+      el("div", { class: "menu-row" },
+        el("span", {}, "Search engine"),
+        engineSelect),
+      el("div", { class: "menu-row" },
+        el("span", {}, "Default zoom for new tabs"),
+        zoomInput),
+      el("div", { class: "menu-sep" }),
+      el("div", { class: "menu-title" }, "Clear browsing data"),
+      checkRow(cacheCb, "Cached images and files", "frees disk space"),
+      checkRow(cookiesCb, "Cookies and site data", "signs you out of Hub sites"),
+      checkRow(historyCb, "Browsing history", "stored locally, capped at 5000"),
+      clearBtn,
+      el("div", { class: "menu-sep" }),
+      el("div", { class: "menu-title" }, "This page"),
+      el("div", { class: "menu-actions" }, printBtn, pdfBtn));
+    content.append(menuPanel);
+  }
+
+  /* ------------------------------------------------------------- permission dialog */
+  let permDialog = null;
+  let permTimer = null;
+  function hidePermissionDialog() {
+    clearTimeout(permTimer);
+    permDialog?.remove();
+    permDialog = null;
+  }
+  function showPermissionDialog(request) {
+    hidePermissionDialog();
+    const respond = (allowed, remember) => {
+      window.jmdb.permissions.respond({ id: request.id, allowed, remember: Boolean(remember) });
+      hidePermissionDialog();
+    };
+    permDialog = el("div", { class: "hub-perm" },
+      el("h4", {}, "Permission request"),
+      el("p", { style: { lineHeight: "1.5" } }, request.message || `${request.origin} wants to use: ${request.permission}`),
+      el("p", { style: { color: "var(--text-dim)", fontSize: "12.5px", margin: "0 0 10px" } }, request.origin || ""),
+      el("div", { class: "menu-actions" },
+        el("button", { class: "btn small", onclick: () => respond(false, false) }, "Deny"),
+        el("button", { class: "btn small", onclick: () => respond(true, true) }, "Always allow"),
+        el("button", { class: "btn small primary", onclick: () => respond(true, false) }, "Allow")));
+    content.append(permDialog);
+    // after 30s main falls back to the native dialog; stop showing this one
+    permTimer = setTimeout(hidePermissionDialog, 30000);
+  }
+
   /* ------------------------------------------------------------- history */
   let historyPanel = null;
+  let historyQuery = "";
   async function renderHistory() {
     historyPanel?.remove();
-    const entries = await hub.history().catch(() => []);
+    const entries = await hub.history(historyQuery || undefined).catch(() => []);
+    const search = el("input", {
+      class: "input", type: "search", placeholder: "Search history…",
+      value: historyQuery, style: { width: "220px" },
+    });
+    search.addEventListener("input", () => {
+      historyQuery = search.value;
+      renderHistory();
+    });
     historyPanel = el("div", { class: "hub-history" });
     const head = el("div", { class: "page-head" },
       el("div", {}, el("h1", {}, "Browser history"),
-        el("div", { class: "sub" }, `${entries.length} recent entries, stored locally`)),
+        el("div", { class: "sub" }, `${entries.length} ${historyQuery ? "matching" : "recent"} entries, stored locally`)),
       el("div", { class: "spacer" }),
+      search,
       el("button", { class: "btn small danger", onclick: async () => { await hub.clearHistory(); renderHistory(); } }, "Clear history"),
       el("button", { class: "btn small", onclick: () => { historyOpen = false; historyPanel.remove(); historyPanel = null; } }, "Close"));
     historyPanel.append(head);
@@ -284,7 +449,11 @@ export default async function render(container, route) {
 
   /* ------------------------------------------------------------- IPC */
   const offs = [];
-  offs.push(window.jmdb.on("hub:tabs", (list) => { tabs = list; renderTabs(); }));
+  offs.push(window.jmdb.on("hub:tabs", (list) => {
+    tabs = list; renderTabs();
+    const signature = tabs.filter((tab) => tab.pinned).map((tab) => tab.url).sort().join("|");
+    if (signature !== favSignature) { favSignature = signature; renderFavorites(); }
+  }));
   offs.push(window.jmdb.on("hub:tab-active", (tab) => {
     activeTab = tab; renderActive(); hideBanner();
   }));
@@ -310,6 +479,7 @@ export default async function render(container, route) {
   offs.push(window.jmdb.on("hub:load-error", (data) => {
     showBanner(`Couldn't load ${data.url || "page"}: ${data.description || "network error"}. Check your connection; sites open in the hub need internet.`, [["Retry", () => hub.reload()], ["Dismiss", () => hideBanner()]]);
   }));
+  offs.push(window.jmdb.on("permissions:asked", (request) => showPermissionDialog(request)));
   offs.push(window.jmdb.on("downloads:updated", (list) => {
     downloads = list;
     downloadsBtn.style.color = downloads.some((item) => item.state === "progressing") ? "var(--accent)" : "";
@@ -330,6 +500,7 @@ export default async function render(container, route) {
   }
   renderTabs();
   renderActive();
+  renderFavorites();
 
   // cleanup when navigating away from the hub page
   const disconnect = () => {
@@ -338,6 +509,8 @@ export default async function render(container, route) {
       document.removeEventListener("keydown", keyHandler);
       for (const off of offs) off();
       hideBanner();
+      closeMenu();
+      hidePermissionDialog();
       window.removeEventListener("hashchange", disconnect);
     }
   };

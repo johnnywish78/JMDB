@@ -15,6 +15,12 @@ async function request(path, options = {}) {
   if (token && !path.startsWith("/app/")) {
     headers["Authorization"] = `Bearer ${token}`;
   }
+  // Tell the backend which frontend is asking, so capabilities like "can
+  // this service open embedded?" resolve for THIS client (the Electron
+  // Browser Hub always exists here and never depends on PyQt6-WebEngine).
+  if (window.jmdb?.platform === "electron") {
+    headers["X-JMDB-Frontend"] = "electron";
+  }
   const response = await fetch(path, { ...options, headers, body: options.body !== undefined ? JSON.stringify(options.body) : undefined });
   if (!response.ok) {
     let detail = "";
@@ -33,6 +39,7 @@ async function request(path, options = {}) {
 export const api = {
   get: (path) => request(path),
   post: (path, body = {}) => request(path, { method: "POST", body }),
+  put: (path, body = {}) => request(path, { method: "PUT", body }),
   patch: (path, body) => request(path, { method: "PATCH", body }),
   del: (path) => request(path, { method: "DELETE" }),
 };

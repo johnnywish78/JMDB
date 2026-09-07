@@ -107,6 +107,19 @@ function entries(webContents, params, actions, options) {
       {
         label: "Actual size",
         click: () => options.hubActions?.zoom("reset"),
+      },
+      { type: "separator" },
+      {
+        label: "Save page as…",
+        click: () => webContents.downloadURL(webContents.getURL()),
+      },
+      {
+        label: "View page source",
+        click: () => actions.openTab(`view-source:${webContents.getURL()}`),
+      },
+      {
+        label: "Print…",
+        click: () => options.hubActions?.print(),
       }
     );
   } else if (options.appUi) {

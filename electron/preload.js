@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld("jmdb", {
     open: (url) => invoke("open-external", url),
   },
 
+  dialog: {
+    pickFolder: () => invoke("dialog:pickFolder"),
+  },
+
   hub: {
     createTab: hubChannel("createTab"),
     closeTab: hubChannel("closeTab"),
@@ -44,6 +48,13 @@ contextBridge.exposeInMainWorld("jmdb", {
     setVisible: hubChannel("setVisible"),
     history: hubChannel("history"),
     clearHistory: hubChannel("clearHistory"),
+    togglePin: hubChannel("togglePin"),
+    favorites: hubChannel("favorites"),
+    switchTab: hubChannel("switchTab"),
+    print: hubChannel("print"),
+    exportPdf: hubChannel("exportPdf"),
+    clearData: hubChannel("clearData"),
+    setDefaultZoom: hubChannel("setDefaultZoom"),
   },
 
   downloads: {

@@ -17,6 +17,7 @@ const { DRM_DOMAINS, isDrmHost, normalizeInput } = require("./url-utils");
 
 const SESSION_FILE = () => path.join(app.getPath("userData"), "hub-session.json");
 const HISTORY_FILE = () => path.join(app.getPath("userData"), "browser-history.json");
+const FAVORITES_FILE = () => path.join(app.getPath("userData"), "hub-favorites.json");
 
 const DEFAULT_ZOOM = 1.0;
 
@@ -24,13 +25,15 @@ class Hub {
   constructor({ window, onExternal }) {
     this.getWindow = window;
     this.onExternal = onExternal;
-    this.tabs = new Map(); // id -> { id, view, url, title, favicon, loading, zoom }
+    this.tabs = new Map(); // id -> { id, view, url, title, favicon, loading, zoom, pinned }
     this.activeId = null;
     this.closedStack = []; // for reopen (Ctrl+Shift+T)
     this.bounds = { x: 0, y: 0, width: 0, height: 0 };
     this.visible = false;
     this.nextId = 1;
     this.history = this.loadHistory();
+    this.favorites = this.loadFavorites();
+    this.defaultZoom = DEFAULT_ZOOM; // renderer pushes the profile setting here
     this.searchEngines = {
       duckduckgo: "https://duckduckgo.com/?q=",
       google: "https://www.google.com/search?q=",
@@ -65,17 +68,78 @@ class Hub {
     this.saveHistory();
   }
 
-  recentHistory(limit = 200) {
-    return this.history.slice(0, limit);
-  }
-
   clearHistory() {
     this.history = [];
     this.saveHistory();
   }
 
+  /** history with optional substring filter (url or title), newest first */
+  recentHistory(limitOrQuery = 200, maybeLimit) {
+    const query = typeof limitOrQuery === "string" ? limitOrQuery.toLowerCase() : null;
+    const limit = typeof limitOrQuery === "string" ? (maybeLimit ?? 100) : limitOrQuery;
+    let entries = this.history;
+    if (query) {
+      entries = entries.filter(
+        (entry) =>
+          String(entry.url || "").toLowerCase().includes(query) ||
+          String(entry.title || "").toLowerCase().includes(query)
+      );
+    }
+    return entries.slice(0, limit);
+  }
+
+  // -- favorites (pinned tabs, JPNH-style) -------------------------------------
+
+  loadFavorites() {
+    try {
+      const data = JSON.parse(fs.readFileSync(FAVORITES_FILE(), "utf-8"));
+      return Array.isArray(data.favorites)
+        ? data.favorites.filter((f) => f && typeof f.url === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  saveFavorites() {
+    try {
+      fs.writeFileSync(
+        FAVORITES_FILE(),
+        JSON.stringify({ favorites: this.favorites.slice(0, 200) }, null, 2)
+      );
+    } catch {
+      /* best effort */
+    }
+  }
+
+  favoritesList() {
+    return this.favorites.map((f) => ({ name: f.name || f.url, url: f.url, pinned: true }));
+  }
+
+  /** pin/unpin a tab; pinned tabs persist as favorites across restarts */
+  togglePin(id) {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+    tab.pinned = !tab.pinned;
+    if (tab.pinned) {
+      if (!this.favorites.some((f) => f.url === tab.url)) {
+        this.favorites.push({ name: tab.title || tab.url, url: tab.url });
+      }
+    } else {
+      this.favorites = this.favorites.filter((f) => f.url !== tab.url);
+    }
+    this.saveFavorites();
+    this.saveSession();
+    this.broadcastTabs();
+    return { id: tab.id, pinned: tab.pinned };
+  }
+
   saveSession() {
-    const tabs = [...this.tabs.values()].map((tab) => ({ url: tab.url, title: tab.title }));
+    const tabs = [...this.tabs.values()].map((tab) => ({
+      url: tab.url,
+      title: tab.title,
+      pinned: Boolean(tab.pinned),
+    }));
     try {
       fs.writeFileSync(SESSION_FILE(), JSON.stringify({ tabs }));
     } catch {
@@ -115,11 +179,17 @@ class Hub {
         spellcheck: false,
       },
     });
-    const tab = { id, view, url, title: "New tab", favicon: null, loading: true, zoom: DEFAULT_ZOOM };
+    const tab = {
+      id, view, url, title: "New tab", favicon: null, loading: true,
+      zoom: this.defaultZoom, pinned: false,
+    };
     this.tabs.set(id, tab);
 
     const wc = view.webContents;
     wc.setAudioMuted(false);
+    if (this.defaultZoom !== DEFAULT_ZOOM) {
+      try { wc.setZoomFactor(this.defaultZoom); } catch { /* pre-load zoom is best effort */ }
+    }
 
     wc.setWindowOpenHandler(({ url: target }) => {
       if (/^https?:/i.test(target)) this.createTab(target);
@@ -143,7 +213,16 @@ class Hub {
       this.saveSession();
     });
     wc.on("did-navigate-in-page", (_e, url) => this.markTab(id, { url }));
-    wc.on("page-title-updated", (_e, title) => this.markTab(id, { title }));
+    wc.on("page-title-updated", (_e, title) => {
+      this.markTab(id, { title });
+      // did-navigate records history with the PREVIOUS page's title (the new
+      // one hasn't arrived yet); fix the entry up once the real title lands.
+      const entry = this.history.find((item) => item.url === tab.url);
+      if (entry && title) {
+        entry.title = title;
+        this.saveHistory();
+      }
+    });
     wc.on("page-favicon-updated", (_e, icons) => {
       const icon = icons.length ? icons[icons.length - 1] : null;
       this.markTab(id, { favicon: icon });
@@ -186,6 +265,8 @@ class Hub {
       let handled = true;
       if (ctrl && key === "t") this.createTab();
       else if (ctrl && key === "w") this.closeTab(this.activeId);
+      else if (ctrl && input.shift && key === "tab") this.switchTab(-1);
+      else if (ctrl && key === "tab") this.switchTab(1);
       else if (ctrl && input.shift && key === "t") this.reopenTab();
       else if (ctrl && key === "l") this.send("hub:focus-address");
       else if (ctrl && key === "r") this.reload();
@@ -355,6 +436,81 @@ class Hub {
     this.sendActiveState();
   }
 
+  /** cycle tabs with wraparound (Ctrl+Tab / Ctrl+Shift+Tab) */
+  switchTab(direction) {
+    const ids = [...this.tabs.keys()];
+    if (ids.length < 2) return;
+    const idx = ids.indexOf(this.activeId);
+    if (idx === -1) return;
+    const next = (idx + (direction >= 0 ? 1 : -1) + ids.length) % ids.length;
+    this.activateTab(ids[next]);
+  }
+
+  // -- print / pdf / data clearing (JPNH-parity hub actions) ------------------
+
+  print() {
+    this.activeTab()?.view.webContents.print({ printBackground: true });
+  }
+
+  async exportPdf() {
+    const tab = this.activeTab();
+    const win = this.getWindow();
+    if (!tab || !win) return { ok: false, error: "no active tab" };
+    try {
+      const data = await tab.view.webContents.printToPDF({ printBackground: true, pageSize: "A4" });
+      const { dialog } = require("electron");
+      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        defaultPath: `${(tab.title || "page").replace(/[^\w\s-]/g, "").trim() || "page"}.pdf`,
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (canceled || !filePath) return { ok: false, cancelled: true };
+      fs.writeFileSync(filePath, data);
+      return { ok: true, path: filePath };
+    } catch (error) {
+      return { ok: false, error: String(error?.message || error) };
+    }
+  }
+
+  /** clear hub browsing data: cache / cookies / history. Only the hub's own
+   * "persist:jmdb" partition is touched — app UI session stays intact. */
+  async clearData(types = []) {
+    const cleared = {};
+    const list = Array.isArray(types) ? types : [];
+    try {
+      if (list.includes("cache")) {
+        await this.session().clearCache();
+        cleared.cache = true;
+      }
+      if (list.includes("cookies")) {
+        await this.session().clearStorageData({ storages: ["cookies", "localstorage", "indexdb", "serviceworkers", "cachestorage"] });
+        cleared.cookies = true;
+      }
+      if (list.includes("history")) {
+        this.clearHistory();
+        cleared.history = true;
+      }
+    } catch (error) {
+      return { ok: false, cleared, error: String(error?.message || error) };
+    }
+    return { ok: true, cleared };
+  }
+
+  setDefaultZoom(percent) {
+    const factor = Math.min(3, Math.max(0.25, Number(percent) / 100));
+    this.defaultZoom = Number.isFinite(factor) ? factor : DEFAULT_ZOOM;
+    return this.defaultZoom;
+  }
+
+  /** true when the webContents belongs to a hub tab (used to route permission
+   * requests to the in-page dialog instead of the native one) */
+  isTabWebContents(wc) {
+    if (!wc) return false;
+    for (const tab of this.tabs.values()) {
+      if (tab.view.webContents === wc) return true;
+    }
+    return false;
+  }
+
   // -- renderer plumbing ----------------------------------------------------
 
   activeTab() {
@@ -377,6 +533,7 @@ class Hub {
       favicon: tab.favicon,
       loading: tab.loading,
       crashed: Boolean(tab.crashed),
+      pinned: Boolean(tab.pinned),
       zoom: tab.view.webContents.getZoomFactor(),
     }));
   }

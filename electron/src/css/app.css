@@ -521,6 +521,47 @@ video::cue { background: rgba(0, 0, 0, 0.65); font-size: 105%; }
 .history-item .when { color: var(--text-faint); font-size: 11.5px; margin-left: auto; flex: none; }
 .history-item .url { color: var(--text-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* favorites bar, hub menu, permission dialog (JPNH-parity additions) */
+.hub-favs {
+  display: flex; align-items: center; gap: 6px; padding: 5px 12px; flex: none;
+  background: var(--surface-2); border-bottom: 1px solid var(--border); overflow-x: auto;
+}
+.hub-favs.hidden { display: none; }
+.fav-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px;
+  border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text-dim); font-size: 12px; cursor: pointer; max-width: 220px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fav-chip:hover { color: var(--text); border-color: var(--accent); }
+.hub-tab .pin-star { color: var(--accent); font-size: 11px; flex: none; }
+.nav-btn.pinned { color: var(--accent); }
+.hub-menu {
+  position: absolute; top: 10px; right: 14px; width: 350px; z-index: 14;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px; box-shadow: var(--shadow); display: flex; flex-direction: column;
+  gap: 10px; font-size: 13px;
+}
+.hub-menu .menu-head { display: flex; align-items: center; justify-content: space-between; }
+.hub-menu .menu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hub-menu .menu-row .input, .hub-menu .menu-row .select { width: 160px; }
+.hub-menu .menu-sep { height: 1px; background: var(--border); margin: 2px 0; }
+.hub-menu .menu-title {
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint);
+}
+.hub-menu .menu-check { display: flex; gap: 9px; align-items: flex-start; cursor: pointer; }
+.hub-menu .menu-check input { margin-top: 3px; }
+.hub-menu .menu-check span { font-size: 12.5px; }
+.hub-menu .menu-check .s { display: block; color: var(--text-faint); font-size: 11px; margin-top: 1px; }
+.hub-menu .menu-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.hub-perm {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 15;
+  background: var(--surface); border: 1px solid var(--accent); border-radius: 12px;
+  padding: 14px 16px; box-shadow: var(--shadow); width: min(440px, 92%); font-size: 13px;
+}
+.hub-perm h4 { margin: 0 0 6px; }
+.hub-perm .menu-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
 /* responsive tweaks */
 @media (max-width: 1100px) {
   .detail-layout { grid-template-columns: 180px 1fr; }
@@ -531,3 +572,44 @@ video::cue { background: rgba(0, 0, 0, 0.65); font-size: 105%; }
   .sidebar .brand-name, .nav a span.label, .nav-section, .sidebar-footer { display: none; }
   .nav a { justify-content: center; }
 }
+
+/* ---------------------------------------------------------------- settings: clearer control separation
+   (theme chips used to read as one concatenated "DarkLightSystem" blob) */
+.chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 1px transparent;
+  min-width: 64px;
+  text-align: center;
+}
+.chip + .chip { margin-left: 2px; }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.setting-row .chip-row { gap: 10px; }
+
+/* settings: live scan status */
+.scan-status {
+  margin-top: 12px; padding: 9px 14px; border-radius: 10px;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 12.5px; font-weight: 600;
+}
+.scan-status.hidden { display: none; }
+
+/* settings: provider cards (metadata transparency + key configuration) */
+.provider-chains { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 10px; }
+.provider-chains .chain { font-size: 12px; color: var(--text-dim); }
+.provider-chains .chain-label { font-weight: 700; color: var(--text); }
+.provider-chains .chain-item { font-family: ui-monospace, monospace; }
+.provider-card {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 14px; margin-bottom: 8px; background: var(--surface-2);
+}
+.provider-card.ok { border-left: 3px solid var(--good); }
+.provider-card .provider-used-for { color: var(--text-faint); font-size: 11.5px; flex: none; }
+.provider-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.provider-test-result { font-size: 12px; color: var(--text-dim); }
+.provider-test-result.good { color: var(--good); }
+.provider-test-result.bad { color: var(--bad); }
+.provider-env { color: var(--text-faint); font-size: 11px; margin-left: auto; font-family: ui-monospace, monospace; }
+.provider-error { color: var(--bad); }
+.provider-card a { color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--text-dim); }
+.provider-card a:hover { color: var(--accent); border-bottom-color: var(--accent); }

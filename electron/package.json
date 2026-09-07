@@ -7,7 +7,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "smoke": "electron smoke.js"
+    "smoke": "electron smoke.js",
+    "test": "node --test test/url-utils.test.js test/external.test.js test/hub.test.js test/address.test.js test/modules.test.js test/permissions.test.js"
   },
   "devDependencies": {
     "electron": "^44.2.0"

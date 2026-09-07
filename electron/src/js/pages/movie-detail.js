@@ -99,7 +99,7 @@ export default async function render(container, route, params) {
     }
   }
 
-  // metadata actions
+  // metadata actions + source transparency
   info.append(el("div", { class: "chip-row", style: { marginTop: "8px" } },
     el("button", {
       class: "btn small", onclick: async () => {
@@ -111,8 +111,24 @@ export default async function render(container, route, params) {
         }
       },
     }, icon("refresh"), "Refresh metadata"),
+    metadataSourceBadge(movie),
     (movie.trailer_url || "") ? el("a", { class: "btn small", href: movie.trailer_url, target: "_blank", rel: "noreferrer" }, icon("external"), "Trailer") : null));
 
   layout.append(poster, info);
   container.append(layout);
+}
+
+/** Honest "where does this data come from" badge: the providers that really
+ * supplied this item (recorded at enrichment time), or local files. */
+export function metadataSourceBadge(item) {
+  const sources = (item && item.metadata && Array.isArray(item.metadata.sources))
+    ? item.metadata.sources.filter(Boolean)
+    : [];
+  const label = sources.length
+    ? `Metadata: ${sources.join(" · ")}`
+    : "Metadata: local files only (no provider key/data)";
+  return el("span", {
+    class: "badge outline", title: "Provider(s) that supplied this item's details",
+    style: { alignSelf: "center" },
+  }, label);
 }

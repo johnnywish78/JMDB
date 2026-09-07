@@ -2,6 +2,8 @@
 /** External browser opening: prefer an installed Chrome/Chromium if the user
  * asked for it (DRM sites etc.), always fall back to the system default. */
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
 const { shell } = require("electron");
 
 const CANDIDATES = [
