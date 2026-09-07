@@ -96,8 +96,12 @@ def _reset_database() -> int:
     return 0
 
 
-def _run_backend(port: int | None = None, log_level: str = "warning") -> tuple[int, object]:
-    """Start the API server on a background thread. Returns (port, stop_fn)."""
+def _run_backend(port: int | None = None, log_level: str = "warning") -> tuple[int, object, str]:
+    """Start the API server on a background thread. Returns (port, server, token).
+
+    The token is the one this backend instance validates; the caller must
+    hand it to Electron so the window can boot via /app/boot.
+    """
     import uvicorn
 
     from app.api.auth import generate_token
@@ -120,13 +124,13 @@ def _run_backend(port: int | None = None, log_level: str = "warning") -> tuple[i
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as response:
                 if response.status == 200:
-                    return port, server
+                    return port, server, token
         except (urllib.error.URLError, OSError):
             time.sleep(0.2)
     raise RuntimeError("backend did not become healthy in time")
 
 
-def _run_electron(backend_port: int) -> int:
+def _run_electron(backend_port: int, backend_token: str) -> int:
     """Launch the Electron frontend against our backend; blocks until exit."""
     electron = ELECTRON_DIR / "node_modules" / ".bin" / "electron"
     if not electron.exists():
@@ -145,6 +149,7 @@ def _run_electron(backend_port: int) -> int:
 
     env = dict(os.environ)
     env["JMDB_BACKEND_URL"] = f"http://127.0.0.1:{backend_port}"
+    env["JMDB_BACKEND_TOKEN"] = backend_token
     env.setdefault("JMDB_PYTHON", sys.executable)
 
     process = subprocess.Popen(
@@ -211,13 +216,13 @@ def main() -> int:
 
     # default: Electron frontend + in-process backend
     try:
-        port, server = _run_backend()
+        port, server, token = _run_backend()
     except Exception as exc:  # noqa: BLE001 - report any startup failure cleanly
         print(f"JMDB backend failed to start: {exc}", file=sys.stderr)
         return 1
 
     try:
-        return _run_electron(port)
+        return _run_electron(port, token)
     finally:
         server.should_exit = True
 
