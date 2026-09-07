@@ -34,6 +34,16 @@ class ItunesProvider(MetadataProvider):
     requires_key = False
     capabilities = {"movie", "tv", "artist", "album"}
     min_request_interval = 0.5
+    website = "https://itunes.apple.com"
+    supplies = "Fallback movie/TV/music metadata and artwork (no key needed)"
+
+    def test_connection(self, api_key: str = "") -> dict:
+        try:
+            data = self.http.get_json(BASE, params={"term": "test", "media": "movie", "limit": 1}, provider=self.id)
+            count = data.get("resultCount", 0) if isinstance(data, dict) else 0
+            return {"ok": True, "detail": f"iTunes reachable ({count} results)"}
+        except Exception as exc:
+            return {"ok": False, "detail": str(exc)}
 
     def search_movie(self, title: str, year: int | None = None) -> list[MovieMetadata]:
         data = self.http.get_json(

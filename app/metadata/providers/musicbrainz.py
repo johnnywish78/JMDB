@@ -18,6 +18,15 @@ class MusicBrainzProvider(MetadataProvider):
     requires_key = False
     capabilities = {"artist", "album"}
     min_request_interval = 1.1  # MusicBrainz rate limit: max 1 req/sec
+    website = "https://musicbrainz.org"
+    supplies = "Music artist, album and release metadata (primary music source, no key needed)"
+
+    def test_connection(self, api_key: str = "") -> dict:
+        try:
+            data = self.http.get_json(f"{BASE}/artist/", params={"query": "mozart", "fmt": "json", "limit": 1}, provider=self.id)
+            return {"ok": True, "detail": "MusicBrainz reachable"}
+        except Exception as exc:
+            return {"ok": False, "detail": str(exc)}
 
     def search_artist(self, name: str) -> list[ArtistMetadata]:
         data = self.http.get_json(

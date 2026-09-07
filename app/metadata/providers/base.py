@@ -153,6 +153,9 @@ class MetadataProvider(ABC):
     capabilities = {"movie", "tv", "person", "artist", "album"}
     # MediaBrainz etc. must not hammer their API: min seconds between calls
     min_request_interval = 0.0
+    # documentation/transparency metadata (never used for behavior)
+    website = ""   # official provider website
+    supplies = ""  # human sentence: what data this provider supplies
 
     def __init__(self, http: HttpClient, api_key: str = "") -> None:
         self.http = http

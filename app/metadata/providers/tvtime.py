@@ -24,7 +24,11 @@ class TvTimeProvider(MetadataProvider):
     display_name = "TV Time"
     requires_key = False
     capabilities = set()  # no metadata capability: no public API
+    website = "https://www.tvtime.com"
+    supplies = "No public API — TV Time opens as a website; tracking happens there"
 
+    def test_connection(self, api_key: str = "") -> dict:
+        return {"ok": False, "detail": "TV Time has no public API to test — it opens as a website"}
     def is_configured(self) -> bool:
         return False  # honestly unavailable: no public API exists
 

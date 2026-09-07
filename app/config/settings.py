@@ -57,6 +57,7 @@ DEFAULTS = {
     # Browser
     "browser_home_url": "jmdb://home",
     "browser_search_engine": "duckduckgo",  # google|duckduckgo|bing|brave|startpage
+    "browser_default_zoom": 100,  # percent, 50-300, applied to new Browser Hub tabs
     "browser_enable_javascript": True,
     "browser_allow_cookies": True,
     "browser_external": "auto",  # auto | chrome | chromium | firefox | edge | default
@@ -182,6 +183,8 @@ class SettingsService:
     # -- validation -------------------------------------------------------
     @staticmethod
     def _validate(key: str, value: Any) -> None:
+        if key == "browser_default_zoom" and not (50 <= int(value) <= 300):
+            raise SettingsError("browser_default_zoom must be between 50 and 300")
         if key == "theme" and value not in VALID_THEMES:
             raise SettingsError(f"theme must be one of {sorted(VALID_THEMES)}")
         if key == "playback_backend" and value not in VALID_BACKENDS:

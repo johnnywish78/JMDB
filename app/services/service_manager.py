@@ -98,10 +98,28 @@ class ServiceManager:
             config.pop("url", None)
         self.repos.service_accounts.set_config(service_id, config)
 
-    def statuses(self) -> list[ServiceStatus]:
+    def statuses(self, frontend: str = "web") -> list[ServiceStatus]:
+        """Availability per service, for the frontend that is asking.
+
+        ``frontend`` decides what "embedded" means — the embedded browser is a
+        property of the CLIENT, not of this Python process:
+
+        - ``"electron"``: the Browser Hub (Electron ``WebContentsView``) ships
+          with the desktop app itself → always available, never depends on
+          PyQt6-WebEngine.
+        - ``"qt"``: the legacy PyQt UI embeds via QtWebEngine → real
+          availability check.
+        - ``"web"`` (browser/demo): no embedded hub in a plain browser tab →
+          services open in the browser/external player instead.
+        """
         from app.browser.engine import detect_system_browsers
 
-        embedded, embedded_reason = webengine_available()
+        if frontend == "electron":
+            embedded, embedded_reason = True, ""
+        elif frontend == "qt":
+            embedded, embedded_reason = webengine_available()
+        else:
+            embedded, embedded_reason = False, ""
         browsers = detect_system_browsers()
         external_names = ", ".join(b.name for b in browsers[:4]) or "none detected"
         out = []
@@ -110,13 +128,18 @@ class ServiceManager:
             notes = ""
             if definition.requires_drm:
                 notes = (
-                    "DRM-protected: uses your system browser (embedded WebEngine "
-                    "cannot play DRM content)."
+                    "DRM-protected: opens in your system browser, where DRM "
+                    "playback is supported (embedded browsers can't play it)."
                 )
             elif definition.external_preferred:
                 notes = "Best experience in a full browser."
             if not embedded and definition.embedded_allowed:
-                notes = (notes + " " if notes else "") + f"Embedded browser unavailable: {embedded_reason}"
+                if frontend == "web":
+                    notes = (
+                        notes + " " if notes else ""
+                    ) + "The embedded Browser Hub is part of the JMDB desktop app; from a plain browser this opens in a new tab."
+                elif embedded_reason:
+                    notes = (notes + " " if notes else "") + f"Embedded browser unavailable: {embedded_reason}"
             out.append(
                 ServiceStatus(
                     definition=definition,

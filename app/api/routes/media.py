@@ -28,13 +28,40 @@ def _detail_for(services, media_type: str, media_id: int, profile_id: int):
     return None
 
 
+def _attach_metadata_sources(services, media_type: str, media_id: int, detail: dict) -> dict:
+    """Make the metadata source transparent: which providers actually
+    supplied this item's data, and when it was last fetched. Local file
+    metadata only → empty sources list (the UI shows "local files")."""
+    if not isinstance(detail, dict):
+        return detail
+    try:
+        recorded_type = {
+            "tv_show": "tv_show",
+            "movie": "movie",
+            "artist": "artist",
+            "album": "album",
+        }.get(media_type)
+        if recorded_type is None:
+            # seasons/episodes/people: sources are recorded at show/artist level
+            return detail
+        sources = services.repos.metadata_sources.providers_for(recorded_type, media_id)
+        last = services.repos.metadata_sources.last_fetched(recorded_type, media_id)
+        detail["metadata"] = {
+            "sources": [s for s in sources if s and s != "local"],
+            "last_fetched": last or "",
+        }
+    except Exception:  # pragma: no cover - transparency must never break a page
+        detail.setdefault("metadata", {"sources": [], "last_fetched": ""})
+    return detail
+
+
 @router.get("/media/{media_type}/{media_id}")
 def media_detail(request: Request, media_type: str, media_id: int) -> dict:
     services = request.app.state.context.services
     detail = _detail_for(services, media_type, media_id, services.profile.id)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"{media_type} {media_id} not found")
-    return detail
+    return _attach_metadata_sources(services, media_type, media_id, detail)
 
 
 @router.get("/movies/{movie_id}")
@@ -43,7 +70,7 @@ def movie_detail(request: Request, movie_id: int) -> dict:
     detail = services.movies.detail(movie_id, services.profile.id)
     if detail is None:
         raise HTTPException(status_code=404, detail="movie not found")
-    return detail
+    return _attach_metadata_sources(services, "movie", movie_id, detail)
 
 
 @router.get("/shows/{show_id}")
@@ -52,7 +79,7 @@ def show_detail(request: Request, show_id: int) -> dict:
     detail = services.tv.show_detail(show_id, services.profile.id)
     if detail is None:
         raise HTTPException(status_code=404, detail="show not found")
-    return detail
+    return _attach_metadata_sources(services, "tv_show", show_id, detail)
 
 
 @router.get("/seasons/{season_id}")
@@ -79,7 +106,7 @@ def artist_detail(request: Request, artist_id: int) -> dict:
     detail = services.music.artist_detail(artist_id, services.profile.id)
     if detail is None:
         raise HTTPException(status_code=404, detail="artist not found")
-    return detail
+    return _attach_metadata_sources(services, "artist", artist_id, detail)
 
 
 @router.get("/music/albums/{album_id}")
@@ -88,7 +115,7 @@ def album_detail(request: Request, album_id: int) -> dict:
     detail = services.music.album_detail(album_id, services.profile.id)
     if detail is None:
         raise HTTPException(status_code=404, detail="album not found")
-    return detail
+    return _attach_metadata_sources(services, "album", album_id, detail)
 
 
 @router.get("/people")

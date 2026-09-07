@@ -16,6 +16,21 @@ class FanartProvider(MetadataProvider):
     key_provider_name = "fanarttv"
     capabilities = {"artwork"}
     min_request_interval = 0.5
+    website = "https://fanart.tv"
+    supplies = "Additional fan artwork (posters/backgrounds/logos) for shows and movies"
+
+    def test_connection(self, api_key: str = "") -> dict:
+        key = api_key or self.api_key
+        if not key:
+            return {"ok": False, "detail": "no API key configured"}
+        try:
+            data = self.http.get_json(f"{BASE}/movies/550", params={"api_key": key}, provider=self.id)
+            if isinstance(data, dict) and data.get("error"):
+                message = data["error"].get("message", "") if isinstance(data["error"], dict) else str(data["error"])
+                return {"ok": False, "detail": message or "Fanart.tv rejected the key"}
+            return {"ok": True, "detail": "Fanart.tv accepted the key"}
+        except Exception as exc:
+            return {"ok": False, "detail": str(exc)}
 
     def artwork_for_tv(self, tvdb_id: str) -> dict[str, list[str]]:
         key = self._require_key()

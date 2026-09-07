@@ -403,15 +403,21 @@ class LibraryService:
 
     # -- locations ---------------------------------------------------------------
     def add_location(self, path: str, label: str = "") -> tuple[bool, str]:
-        path = os.path.expanduser(path.strip())
-        if not is_valid_media_root(path):
-            return False, f"Not a readable directory: {path}"
-        existing = self.repos.locations.get_by_path(path)
-        if existing:
-            return False, "This folder is already in your library."
-        self.repos.locations.add(path, label)
-        logger.info("library location added: %s", path)
-        return True, f"Added {path}"
+        expanded = os.path.expanduser(path.strip())
+        if not is_valid_media_root(expanded):
+            return False, f"Not a readable directory: {expanded}"
+        # store the canonical path so "/x/media", "/x/media/" and symlinks
+        # to the same folder can never become duplicate library entries
+        canonical = os.path.realpath(expanded)
+        for existing in self.repos.locations.list():
+            try:
+                if os.path.realpath(existing.path) == canonical:
+                    return False, "This folder is already in your library."
+            except OSError:
+                continue
+        self.repos.locations.add(canonical, label)
+        logger.info("library location added: %s", canonical)
+        return True, f"Added {canonical}"
 
     def remove_location(self, location_id: int) -> None:
         self.repos.locations.remove(location_id)

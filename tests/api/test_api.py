@@ -91,7 +91,10 @@ def test_library_summary_and_locations(api):
     response = api.post(
         "/api/library/locations", json={"path": "/definitely/not/a/dir"}
     )
-    assert response.status_code == 200 and response.json()["ok"] is False
+    # invalid folders are REJECTED with a real error status (regression:
+    # this used to return HTTP 200 + ok:false, which the UI showed as success)
+    assert response.status_code == 400
+    assert "readable directory" in response.json()["detail"]
 
 
 def test_remove_location(api, jmdb_home):

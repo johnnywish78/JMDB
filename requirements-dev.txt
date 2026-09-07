@@ -1,4 +1,6 @@
 -r requirements.txt
-PyQt6-WebEngine>=6.6
+httpx>=0.27          # FastAPI TestClient (API tests)
 pytest>=8.0
 pytest-qt>=4.4
+PyQt6>=6.6           # legacy Qt UI tests
+PyQt6-WebEngine>=6.6 # renderer suite (real Chromium page tests)

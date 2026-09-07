@@ -20,6 +20,15 @@ class TvMazeProvider(MetadataProvider):
     requires_key = False
     capabilities = {"tv"}
     min_request_interval = 0.3
+    website = "https://www.tvmaze.com/api"
+    supplies = "TV show, season and episode metadata (no key needed)"
+
+    def test_connection(self, api_key: str = "") -> dict:
+        try:
+            data = self.http.get_json(f"{BASE}/search/shows", params={"q": "girls"}, provider=self.id)
+            return {"ok": True, "detail": f"TVmaze reachable ({len(data)} results)"}
+        except Exception as exc:
+            return {"ok": False, "detail": str(exc)}
 
     def search_show(self, title: str) -> list[ShowMetadata]:
         data = self.http.get_json(

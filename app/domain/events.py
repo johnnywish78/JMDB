@@ -38,6 +38,7 @@ class LibraryScanProgress(Event):
     current: int = 0
     total: int = 0
     paused: bool = False
+    phase: str = "indexing"  # indexing | matching | artwork | duplicates
 
 
 @dataclass(frozen=True)

@@ -30,7 +30,7 @@ def library_summary(request: Request) -> dict:
     }
 
 
-@router.post("/library/locations")
+@router.post("/library/locations", status_code=201)
 def add_location(request: Request, body: dict = None) -> dict:
     services = request.app.state.context.services
     path = (body or {}).get("path", "").strip()
@@ -38,7 +38,25 @@ def add_location(request: Request, body: dict = None) -> dict:
     if not path:
         raise HTTPException(status_code=400, detail="path required")
     ok, message = services.library.add_location(path, label)
-    return {"ok": ok, "message": message}
+    if not ok:
+        # Distinguish "already added" (409) from "not a usable folder" (400)
+        # so the UI can report the real reason instead of faking success.
+        status = 409 if "already" in message else 400
+        raise HTTPException(status_code=status, detail=message)
+    import os
+
+    expanded = os.path.expanduser(path)
+    added = services.repos.locations.get_by_path(expanded)
+    counts = services.library.location_file_counts()
+    return {
+        "ok": True,
+        "message": message,
+        "added": _location_dict(added) if added else None,
+        "locations": [
+            dict(_location_dict(loc), file_count=counts.get(loc.id, 0))
+            for loc in services.library.locations()
+        ],
+    }
 
 
 @router.delete("/library/locations/{location_id}")

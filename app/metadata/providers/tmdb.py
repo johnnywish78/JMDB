@@ -24,6 +24,18 @@ class TmdbProvider(MetadataProvider):
     key_provider_name = "tmdb"
     capabilities = {"movie", "tv", "person"}
     min_request_interval = 0.25
+    website = "https://www.themoviedb.org"
+    supplies = "Movie, TV and people metadata, posters and backdrops (primary source)"
+
+    def test_connection(self, api_key: str = "") -> dict:
+        key = api_key or self.api_key
+        if not key:
+            return {"ok": False, "detail": "no API key configured"}
+        try:
+            self.http.get_json(f"{BASE}/configuration", params={"api_key": key}, provider=self.id)
+            return {"ok": True, "detail": "TMDB accepted the key"}
+        except Exception as exc:
+            return {"ok": False, "detail": str(exc)}
 
     def _image(self, path: str, size: str = "original") -> str:
         if not path:
