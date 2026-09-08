@@ -29,8 +29,17 @@ class PermissionManager {
     } catch {
       this.store = {};
     }
-    // permissions asked via the renderer banner (in-page permission requests)
+    // permissions asked via the renderer dialog (in-page permission requests)
     this.pending = new Map();
+    this.nextAskId = 1;
+    this.askTimeoutMs = 30000; // renderer must answer within this window
+    // injected after the Hub exists: (webContents) => boolean
+    this.hubLookup = () => false;
+  }
+
+  /** main wires this after creating the Hub (Hub is constructed later) */
+  setHubLookup(fn) {
+    this.hubLookup = fn || (() => false);
   }
 
   originFor(webContents) {
@@ -57,7 +66,11 @@ class PermissionManager {
     }
   }
 
-  /** native permission request handler (site asks for mic/cam/geo/...) */
+  /** permission request handler (site asks for mic/cam/geo/...)
+   *
+   * Hub tabs get the JPNH-style in-page dialog (the renderer banner answers
+   * via permissions:respond); the app UI and any request the renderer fails
+   * to answer in time fall back to the native dialog. */
   async handle(webContents, permission, callback) {
     const normalized = permission.split("-")[0];
     if (!KNOWN.has(permission) && !KNOWN.has(normalized)) {
@@ -79,6 +92,20 @@ class PermissionManager {
       openExternal: "open links in other applications",
     };
     const what = labels[normalized] || `use “${permission}”`;
+
+    if (this.hubLookup(webContents)) {
+      this.askRenderer({
+        id: this.nextAskId++,
+        origin,
+        permission: normalized,
+        message: `${origin} wants to ${what}`,
+      }, callback, { key, what, origin, permission: normalized });
+      return;
+    }
+    await this.askNative(origin, what, callback, key);
+  }
+
+  async askNative(origin, what, callback, key) {
     const win = this.getWindow();
     const { response } = await dialog.showMessageBox(win, {
       type: "question",
@@ -120,20 +147,41 @@ class PermissionManager {
     this.persist();
   }
 
-  /** in-page HTML5 permission requests surface in the hub as a banner */
-  askRenderer(payload) {
+  /** surface the ask in the renderer; if it doesn't answer in 30s (page
+   * not open / renderer hung), fall back to the native dialog. */
+  askRenderer(payload, callback, native) {
     const win = this.getWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send("permissions:asked", payload);
+    if (!win || win.isDestroyed()) {
+      this.askNative(native.origin, native.what, callback, native.key);
+      return;
     }
+    const entry = {
+      callback,
+      native,
+      timer: setTimeout(() => {
+        this.pending.delete(payload.id);
+        this.askNative(native.origin, native.what, callback, native.key);
+      }, this.askTimeoutMs),
+    };
+    this.pending.set(payload.id, entry);
+    win.webContents.send("permissions:asked", payload);
   }
 
-  respondFromRenderer({ origin, permission, allowed }) {
-    this.set(origin, permission, allowed);
-    const pending = this.pending.get(`${origin}|${permission}`);
-    if (pending) {
-      pending(allowed);
-      this.pending.delete(`${origin}|${permission}`);
+  /** renderer answered the in-page dialog: {id, allowed, remember?} */
+  respondFromRenderer({ id, allowed, remember, origin, permission }) {
+    if (id != null && this.pending.has(id)) {
+      const entry = this.pending.get(id);
+      clearTimeout(entry.timer);
+      this.pending.delete(id);
+      if (remember) {
+        this.set(entry.native.origin, entry.native.permission, Boolean(allowed));
+      }
+      entry.callback(Boolean(allowed));
+      return;
+    }
+    // legacy shape (settings page): persist a standing decision
+    if (origin && permission) {
+      this.set(origin, permission, Boolean(allowed));
     }
   }
 }

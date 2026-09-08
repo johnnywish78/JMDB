@@ -70,6 +70,7 @@ def create_app(
         lists,
         media,
         playback,
+        providers,
         recommendations,
         scan,
         search,
@@ -92,6 +93,7 @@ def create_app(
         scan.router,
         bookmarks.router,
         services.router,
+        providers.router,
         artwork.router,
         playback.router,
     ):

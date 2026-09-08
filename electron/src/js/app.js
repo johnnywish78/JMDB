@@ -101,10 +101,25 @@ async function renderRoute(route) {
         console.error(error);
       }
       updateNav(route);
+      notifySmokeReady();
       return;
     }
   }
   navigate("/home");
+}
+
+/** Smoke harness only (JMDB_SMOKE=1 → preload exposes window.jmdb.smoke):
+ * report that the renderer booted and finished rendering its first real
+ * page. No-op in normal runs. */
+let smokeReadySent = false;
+function notifySmokeReady() {
+  if (smokeReadySent) return;
+  smokeReadySent = true;
+  try {
+    window.jmdb?.smoke?.ready?.();
+  } catch {
+    /* smoke-only channel; never affects normal use */
+  }
 }
 
 function updateNav(route) {
@@ -131,27 +146,59 @@ function buildNav() {
 function wireGlobalEvents() {
   // scans
   on("scan_started", () => {
-    document.getElementById("scan-pill").classList.remove("hidden");
+    const pill = document.getElementById("scan-pill");
+    pill.classList.remove("hidden");
+    const text = document.getElementById("scan-pill-text");
+    if (text) text.textContent = "Scanning…";
   });
   on("scan_progress", (data) => {
     const pill = document.getElementById("scan-pill");
     pill.classList.remove("hidden");
     const text = document.getElementById("scan-pill-text");
-    if (text) text.textContent = data.current_path ? `Scanning ${data.current_path.split("/").pop()}…` : "Scanning…";
-  });
-  const hidePill = () => document.getElementById("scan-pill").classList.add("hidden");
-  on("scan_finished", (data) => {
-    hidePill();
-    if (data && data.result) {
-      const result = data.result;
-      toast(
-        `Scan finished: ${result.files_indexed || 0} files indexed, ` +
-        `${result.movies_added || 0} movies / ${result.shows_added || 0} shows / ` +
-        `${result.episodes_added || 0} episodes / ${result.tracks_added || 0} tracks added`,
-        "success");
-      refreshCurrentPage();
+    if (text) {
+      const seen = data.files_seen ? ` — ${data.files_seen} files` : "";
+      if (data.phase === "matching") text.textContent = `Matching media${seen}`;
+      else if (data.phase === "artwork") text.textContent = `Attaching artwork${seen}`;
+      else if (data.paused) text.textContent = "Scan paused";
+      else {
+        const where = data.current_path ? ` ${String(data.current_path).split("/").pop()}` : "";
+        text.textContent = `Scanning${where}${seen}`;
+      }
     }
   });
+  const hidePill = () => document.getElementById("scan-pill").classList.add("hidden");
+
+  // One reporter for BOTH the WebSocket event and the REST polling fallback,
+  // deduplicated by a signature of the result so a scan that finishes while
+  // both paths are active toasts exactly once.
+  let lastScanSignature = null;
+  function reportScanFinished(data) {
+    if (!data || !data.status) return;
+    const signature = [
+      data.status, data.files_indexed, data.files_seen, data.movies_added,
+      data.shows_added, data.episodes_added, data.tracks_added, data.errors,
+      data.duration_seconds,
+    ].join("|");
+    if (signature === lastScanSignature) return;
+    lastScanSignature = signature;
+    hidePill();
+    if (data.status === "completed") {
+      // success summaries honor the notify_scan setting; failures always surface
+      if (store.settings.notify_scan !== false) {
+        toast(
+          `Scan finished in ${Math.max(1, Math.round(data.duration_seconds || 0))}s: ` +
+          `${data.files_indexed || 0} files indexed, ` +
+          `${data.movies_added || 0} movies / ${data.shows_added || 0} shows / ` +
+          `${data.episodes_added || 0} episodes / ${data.tracks_added || 0} tracks added` +
+          (data.errors ? ` (${data.errors} errors)` : ""),
+          "success");
+      }
+    } else {
+      toast(`Scan ${data.status || "finished"}${data.message ? `: ${data.message}` : ""}`, "error");
+    }
+    refreshCurrentPage();
+  }
+  on("scan_finished", reportScanFinished);
   on("scan_failed", (data) => {
     hidePill();
     toast(`Scan failed: ${data.error || "unknown error"}`, "error");
@@ -258,22 +305,37 @@ async function boot() {
     return;
   }
   connectEvents();
-  // polling fallback for scan status (in case WS reconnects late)
+  // Polling fallback for scan status: covers WebSocket outages (missing
+  // websockets package, reconnect windows) with the SAME reporting path as
+  // the WS events — pill while running, one deduplicated finish toast.
+  let pollerSawRunning = false;
   setInterval(async () => {
     try {
       const status = await api.get("/api/scan/status");
       const pill = document.getElementById("scan-pill");
       if (status.running) {
+        pollerSawRunning = true;
         pill.classList.remove("hidden");
         const text = document.getElementById("scan-pill-text");
-        if (text) text.textContent = `Scanning… ${status.files_seen || 0} files`;
+        if (text) {
+          text.textContent = `Scanning… ${status.files_indexed || 0} files` +
+            (status.phase && status.phase !== "indexing" ? ` (${status.phase})` : "");
+        }
       } else {
         pill.classList.add("hidden");
+        // only report a finish the poller itself witnessed starting; the WS
+        // path reports its own (both funnel through the dedup signature)
+        if (pollerSawRunning && status.last_result) {
+          pollerSawRunning = false;
+          reportScanFinished(status.last_result);
+        } else {
+          pollerSawRunning = false;
+        }
       }
     } catch {
       /* backend restarting */
     }
-  }, 5000);
+  }, 2000);
 
   if (!location.hash) location.hash = "#/home";
   else renderRoute(currentRoute());

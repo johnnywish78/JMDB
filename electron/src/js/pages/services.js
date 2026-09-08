@@ -1,6 +1,7 @@
 import { api } from "../api.js";
 import { el, icon, toast } from "../ui.js";
 import { navigate } from "../router.js";
+import { brandIcon } from "../brand-icons.js";
 
 /** Services page: exactly the four registered services. Each opens INSIDE
  * the Browser Hub (embedded) or in an external browser when the site needs
@@ -17,33 +18,51 @@ export default async function render(container) {
   const grid = el("div", { class: "service-grid" });
   for (const service of items) {
     const card = el("article", { class: "service-card", style: { "--svc-accent": service.accent || "var(--accent)" } });
+
+    // real brand mark for known services; a neutral globe for anything else
+    const brand = brandIcon(service.id);
+    const iconBox = el("div", { class: "svc-icon", "aria-hidden": "true" }, brand || icon("globe"));
+    if (brand && service.icon) iconBox.title = service.name || service.id;
     card.append(
-      el("div", { class: "svc-icon" }, service.icon || "◆"),
+      iconBox,
       el("h3", {}, service.name || service.id),
       el("div", { class: "desc" }, service.description || ""),
       el("div", { class: "note" }, service.url || ""));
 
     const actions = el("div", { class: "actions" });
+
+    // The Electron Browser Hub is part of this app: when the hub bridge
+    // exists and the site doesn't need DRM, open it embedded. The target
+    // page owns the tab lifecycle (loading spinner, errors, focus).
+    const canEmbed = Boolean(window.jmdb?.hub) && !service.requires_drm;
+    // honest labels: the button names what it will ACTUALLY do here
+    const primaryLabel = canEmbed ? "Open in Browser Hub"
+      : service.requires_drm ? "Open (system browser)"
+      : "Open in a browser tab";
     actions.append(el("button", {
       class: "btn primary",
+      title: canEmbed ? "Open in a Browser Hub tab"
+        : service.requires_drm ? "This site needs DRM — open it in your default web browser"
+        : "Open in a new browser tab",
       onclick: async () => {
-        if (service.requires_drm) {
-          await openExternally(service.url);
-        } else if (service.embedded === false) {
-          await openExternally(service.url);
+        if (canEmbed) {
+          // the browser page reads ?url= on mount and opens the tab itself —
+          // no timing tricks; failures surface as the hub's own error UI
+          navigate(`/browser?url=${encodeURIComponent(service.url)}`);
         } else {
-          navigate("/browser");
-          setTimeout(() => {
-            if (window.jmdb?.hub) window.jmdb.hub.createTab(service.url);
-          }, 250);
+          const ok = await openExternally(service.url);
+          if (!ok) toast(`Couldn't open ${service.name || service.url}`, "error");
         }
       },
-    }, icon("globe"), "Open in Browser Hub"));
+    }, icon("globe"), primaryLabel));
 
     actions.append(el("button", {
       class: "btn",
       title: "Open in your default web browser",
-      onclick: () => openExternally(service.url),
+      onclick: async () => {
+        const ok = await openExternally(service.url);
+        if (!ok) toast(`Couldn't open ${service.name || service.url}`, "error");
+      },
     }, icon("external"), "External"));
 
     card.append(actions);
@@ -59,8 +78,8 @@ export default async function render(container) {
 async function openExternally(url) {
   if (window.jmdb?.external?.open) {
     const result = await window.jmdb.external.open(url);
-    if (!result || !result.ok) toast("Couldn't open the external browser", "error");
-  } else {
-    window.open(url, "_blank");
+    return Boolean(result && result.ok);
   }
+  window.open(url, "_blank", "noopener");
+  return true;
 }

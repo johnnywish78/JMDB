@@ -4,16 +4,9 @@
  * (find bar, downloads, history, DRM notice). When the user navigates to any
  * other app page, the views are hidden. */
 import { api } from "../api.js";
-import { el, clear, icon } from "../ui.js";
-import { store } from "../store.js";
-
-const SEARCH_ENGINES = {
-  duckduckgo: "https://duckduckgo.com/?q=",
-  google: "https://www.google.com/search?q=",
-  bing: "https://www.bing.com/search?q=",
-  brave: "https://search.brave.com/search?q=",
-  startpage: "https://www.startpage.com/sp/search?query=",
-};
+import { el, clear, icon, toast, confirmDialog } from "../ui.js";
+import { store, saveSettings } from "../store.js";
+import { SEARCH_ENGINES, resolveAddressInput } from "../address.js";
 
 export default async function render(container, route) {
   const hub = window.jmdb?.hub;
@@ -25,15 +18,31 @@ export default async function render(container, route) {
 
   container.classList.add("full-bleed");
   await hub.setVisible(true);
+  // keep main's new-tab zoom in sync with the profile setting
+  if (store.settings.browser_default_zoom) {
+    hub.setDefaultZoom(store.settings.browser_default_zoom).catch(() => {});
+  }
+  // live browser-policy settings (Settings page persists them; the hub applies)
+  if (typeof store.settings.browser_allow_cookies !== "undefined") {
+    hub.setCookiesEnabled(store.settings.browser_allow_cookies !== false).catch(() => {});
+  }
+  if (typeof store.settings.browser_enable_javascript !== "undefined") {
+    hub.setJavaScriptEnabled(store.settings.browser_enable_javascript !== false).catch(() => {});
+  }
 
-  const engine = SEARCH_ENGINES[store.settings.browser_search_engine] || SEARCH_ENGINES.duckduckgo;
+  const engineKey = store.settings.browser_search_engine || "duckduckgo";
+  const engine = SEARCH_ENGINES[engineKey] || SEARCH_ENGINES.duckduckgo;
+  /** Resolve address-bar input against the CONFIGURED search engine:
+   * URLs/domains pass through; anything else becomes a search URL. */
+  const resolveInput = (input) => resolveAddressInput(input, engine);
 
   /* ------------------------------------------------------------- DOM */
   const root = el("div", { class: "hub" });
   const tabsRow = el("div", { class: "hub-tabs" });
   const toolbar = el("div", { class: "hub-toolbar" });
+  const favBar = el("div", { class: "hub-favs hidden" });
   const content = el("div", { class: "hub-content" });
-  root.append(tabsRow, toolbar, content);
+  root.append(tabsRow, toolbar, favBar, content);
   container.append(root);
 
   // back / forward / reload / home
@@ -57,9 +66,15 @@ export default async function render(container, route) {
   const historyBtn = toolbarButton("History", "M3 12a9 9 0 1 0 3-6.7M3 3v6h6M12 7v5l3.5 2");
   const bookmarkBtn = toolbarButton("Bookmark this page", "M6 3.5h12V21l-6-4.2L6 21z");
   const externalBtn = toolbarButton("Open in external browser", "M14 4h6v6M20 4l-9 9M19 13v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6");
+  const zoomOutBtn = toolbarButton("Zoom out (Ctrl+-)", "M5 12h14");
+  const zoomInBtn = toolbarButton("Zoom in (Ctrl+=)", "M12 5v14M5 12h14");
+  const pinBtn = toolbarButton("Pin this tab as a favorite", "M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z");
+  const menuBtn = toolbarButton("Browser menu", "M4 6h16M4 12h16M4 18h16");
+  const passwordsBtn = toolbarButton("Password vault", "M6 11h12v9H6zM9 11V8a3 3 0 0 1 6 0v3");
 
-  toolbar.append(backBtn, forwardBtn, reloadBtn, homeBtn, addressBar, zoomBadge,
-    findBtn, downloadsBtn, historyBtn, bookmarkBtn, externalBtn);
+  toolbar.append(backBtn, forwardBtn, reloadBtn, homeBtn, addressBar,
+    zoomOutBtn, zoomInBtn, zoomBadge,
+    findBtn, downloadsBtn, historyBtn, bookmarkBtn, pinBtn, externalBtn, passwordsBtn, menuBtn);
 
   const underlay = el("div", { class: "underlay" },
     el("div", {},
@@ -74,8 +89,11 @@ export default async function render(container, route) {
   let tabs = [];
   let activeTab = null;
   let findOpen = false;
-  let downloadsOpen = false;
+
   let historyOpen = false;
+  let vaultOpen = false;
+  let vaultEntries = [];
+  let vaultBackendName = "";
   let downloads = [];
   let findCount = { activeMatchOrdinal: 0, matches: 0 };
 
@@ -87,9 +105,13 @@ export default async function render(container, route) {
   externalBtn.addEventListener("click", () => {
     if (activeTab?.url) window.jmdb.external.open(activeTab.url);
   });
+  zoomInBtn.addEventListener("click", () => hub.zoom("in").then(refreshZoom));
+  zoomOutBtn.addEventListener("click", () => hub.zoom("out").then(refreshZoom));
+  pinBtn.addEventListener("click", () => { if (activeTab) hub.togglePin(activeTab.id); });
+  menuBtn.addEventListener("click", () => toggleMenu());
 
   addressInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") hub.navigate(addressInput.value);
+    if (event.key === "Enter") hub.navigate(resolveInput(addressInput.value));
     if (event.key === "Escape") addressInput.blur();
   });
   addressInput.addEventListener("focus", () => addressInput.select());
@@ -105,7 +127,23 @@ export default async function render(container, route) {
   });
 
   findBtn.addEventListener("click", () => toggleFind(true));
-  downloadsBtn.addEventListener("click", () => { downloadsOpen = !downloadsOpen; renderDownloads(); });
+  downloadsBtn.addEventListener("click", () => {
+    clearTimeout(downloadHideTimer);
+    if (downloadBar) {
+      // visible → close it (unpin too, so it doesn't fight the auto-show)
+      downloadsPinned = false;
+      downloadBar.remove();
+      downloadBar = null;
+    } else {
+      downloadsPinned = true;
+      renderDownloadBar();
+    }
+  });
+  passwordsBtn.addEventListener("click", async () => {
+    vaultOpen = !vaultOpen;
+    if (vaultOpen) await loadVault();
+    renderVault();
+  });
   historyBtn.addEventListener("click", async () => {
     historyOpen = !historyOpen;
     if (historyOpen) await renderHistory();
@@ -128,6 +166,8 @@ export default async function render(container, route) {
     else if (ctrl && key === "l") { event.preventDefault(); addressInput.focus(); }
     else if (ctrl && key === "r") { event.preventDefault(); hub.reload(); }
     else if (ctrl && key === "f") { event.preventDefault(); toggleFind(true); }
+    else if (ctrl && key === "p") { event.preventDefault(); hub.print(); }
+    else if (ctrl && event.key === "Tab") { event.preventDefault(); hub.switchTab(event.shiftKey ? -1 : 1); }
     else if (ctrl && (event.key === "+" || event.key === "=")) { event.preventDefault(); hub.zoom("in").then(refreshZoom); }
     else if (ctrl && key === "-") { event.preventDefault(); hub.zoom("out").then(refreshZoom); }
     else if (ctrl && key === "0") { event.preventDefault(); hub.zoom("reset").then(refreshZoom); }
@@ -158,6 +198,7 @@ export default async function render(container, route) {
         globe.textContent = "◉";
         node.append(globe);
       }
+      if (tab.pinned) node.append(el("span", { class: "pin-star", title: "Pinned favorite" }, "★"));
       node.append(el("span", { class: "label" }, tab.title || tab.url || "New tab"));
       const close = el("button", { class: "close", title: "Close tab (Ctrl+W)", onclick: (event) => { event.stopPropagation(); hub.closeTab(tab.id); } }, "×");
       node.append(close);
@@ -176,6 +217,8 @@ export default async function render(container, route) {
     const isHttps = String(activeTab.url || "").startsWith("https://");
     lockIcon.style.color = isHttps ? "var(--good)" : "var(--text-faint)";
     backBtn.disabled = !activeTab.canGoBack;
+    pinBtn.classList.toggle("pinned", Boolean(activeTab.pinned));
+    pinBtn.title = activeTab.pinned ? "Unpin this tab" : "Pin this tab as a favorite";
     refreshZoom();
     document.title = activeTab.title ? `${activeTab.title} — JMDB` : "JMDB";
   }
@@ -219,40 +262,376 @@ export default async function render(container, route) {
   }
 
   /* ------------------------------------------------------------- downloads */
-  let downloadsPanel = null;
-  function renderDownloads() {
-    downloadsPanel?.remove();
-    downloadsPanel = null;
-    if (!downloadsOpen) return;
-    downloadsPanel = el("div", { class: "hub-downloads" }, el("h4", {}, `Downloads (${downloads.length})`));
-    for (const item of downloads.slice(0, 30)) {
-      const pct = item.total ? Math.round((item.received / item.total) * 100) : 0;
-      const row = el("div", { class: "dl-row" },
-        el("div", { class: "top" },
-          el("span", { class: "name", title: item.filename }, item.filename),
-          el("span", { class: "state" }, item.state)),
-        item.state === "progressing" ? el("div", { class: "bar" }, el("span", { style: { width: `${pct}%` } })) : null,
-        el("div", { class: "actions" },
-          item.state === "progressing" ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.pause(item.id) }, "Pause") : null,
-          item.state === "paused" ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.resume(item.id) }, "Resume") : null,
-          item.state === "progressing" ? el("button", { class: "btn small danger", onclick: () => window.jmdb.downloads.cancel(item.id) }, "Cancel") : null,
-          item.state === "completed" ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.openInFolder(item.id) }, "Show in folder") : null));
-      downloadsPanel.append(row);
+  // JPNH-style persistent download bar at the bottom of the hub: auto-shows
+  // while anything is downloading (real progress fills), auto-hides a few
+  // seconds after everything finishes unless the user pinned it open.
+  let downloadBar = null;
+  let downloadsPinned = false;
+  let downloadHideTimer = null;
+
+  function downloadSizeText(item) {
+    const mb = (n) => `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    if (item.total) return `${mb(item.received)} / ${mb(item.total)}`;
+    return item.received ? mb(item.received) : "";
+  }
+
+  function renderDownloadBar() {
+    downloadBar?.remove();
+    downloadBar = null;
+
+    const active = downloads.filter((item) => item.state === "progressing" || item.state === "paused" || item.state === "interrupted");
+
+    const visible = downloadsPinned || active.length > 0;
+    if (!visible) return;
+
+    downloadBar = el("div", { class: "hub-downloadbar" });
+    const head = el("div", { class: "dlbar-head" },
+      el("span", { class: "dlbar-title" },
+        active.length ? `Downloading — ${active.length} file${active.length > 1 ? "s" : ""}` : `Downloads (${downloads.length})`));
+    const closeBtn = el("button", { class: "nav-btn small", title: "Hide the download bar" }, "×");
+    closeBtn.addEventListener("click", () => { downloadsPinned = false; renderDownloadBar(); });
+    head.append(closeBtn);
+    downloadBar.append(head);
+
+    const rowsWrap = el("div", { class: "dlbar-rows" });
+    const shown = downloads.slice(0, 12);
+    if (!shown.length) {
+      rowsWrap.append(el("div", { class: "dl-empty" }, "No downloads yet."));
     }
-    if (!downloads.length) downloadsPanel.append(el("div", { style: { color: "var(--text-dim)", fontSize: "12.5px" } }, "No downloads yet."));
-    content.append(downloadsPanel);
+    for (const item of shown) {
+      const pct = item.total ? Math.min(100, Math.round((item.received / item.total) * 100)) : 0;
+      const stateLabel = item.state === "progressing" ? (item.paused ? "Paused" : item.total ? `${pct}%` : "Downloading…")
+        : item.state === "paused" ? "Paused"
+        : item.state === "interrupted" ? "Interrupted"
+        : item.state === "completed" ? "Completed" : "Cancelled";
+      const row = el("div", { class: "dlbar-row" },
+        el("div", { class: "dlbar-info" },
+          el("span", { class: "name", title: item.filename }, item.filename),
+          el("span", { class: "meta" }, `${stateLabel}${downloadSizeText(item) ? ` · ${downloadSizeText(item)}` : ""}`)),
+        (item.state === "progressing" || item.state === "paused" || item.state === "interrupted")
+          ? el("div", { class: "bar" }, el("span", { class: item.state === "progressing" && !item.paused ? "fill" : "fill paused", style: { width: `${pct}%` } })) : null,
+        el("div", { class: "actions" },
+          item.state === "progressing" && !item.paused ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.pause(item.id) }, "Pause") : null,
+          (item.state === "paused" || (item.state === "progressing" && item.paused)) ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.resume(item.id) }, "Resume") : null,
+          item.state === "interrupted" ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.resume(item.id) }, "Retry") : null,
+          (item.state === "progressing" || item.state === "paused" || item.state === "interrupted") ? el("button", { class: "btn small danger", onclick: () => window.jmdb.downloads.cancel(item.id) }, "Cancel") : null,
+          item.state === "completed" ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.openInFolder(item.id) }, "Show in folder") : null));
+      rowsWrap.append(row);
+    }
+    downloadBar.append(rowsWrap);
+    root.append(downloadBar);
+
+    clearTimeout(downloadHideTimer);
+    if (!active.length && !downloadsPinned) {
+      // everything finished and nobody pinned the bar — quietly slide away
+      downloadHideTimer = setTimeout(() => { downloadBar?.remove(); downloadBar = null; }, 4000);
+    }
+  }
+
+  /* ------------------------------------------------------------- password vault */
+  let vaultPanel = null;
+  let vaultQuery = "";
+
+  async function loadVault() {
+    if (!window.jmdb?.passwords) return;
+    const result = await window.jmdb.passwords.list().catch(() => null);
+    if (result && result.ok) {
+      vaultEntries = result.entries || [];
+      vaultBackendName = result.backend || "";
+    }
+  }
+
+  function renderVault() {
+    vaultPanel?.remove();
+    vaultPanel = null;
+    if (!vaultOpen) return;
+
+    if (!window.jmdb?.passwords) {
+      vaultPanel = el("div", { class: "hub-vault" },
+        el("h4", {}, "Password vault"),
+        el("p", { style: { color: "var(--text-dim)", fontSize: "12.5px" } },
+          "The vault is only available inside the JMDB desktop app."));
+      content.append(vaultPanel);
+      return;
+    }
+
+    vaultPanel = el("div", { class: "hub-vault" });
+    vaultPanel.append(el("h4", {}, `Password vault (${vaultEntries.length})`));
+    vaultPanel.append(el("p", { class: "vault-backend" },
+      vaultBackendName === "safeStorage"
+        ? "Encrypted with your operating system's secure storage. No autofill — copy credentials when you need them."
+        : "Encrypted with a local key file (OS secure storage unavailable). No autofill — copy credentials when you need them."));
+
+    // search
+    const rowsWrap = el("div", { class: "vault-rows" });
+    const search = el("input", { class: "input", type: "text", placeholder: "Search domain or username…", value: vaultQuery,
+      style: { width: "100%", marginBottom: "10px" } });
+    search.addEventListener("input", () => { vaultQuery = search.value; renderVaultRows(); });
+    vaultPanel.append(search);
+    vaultPanel.append(rowsWrap);
+
+    // add form
+    const fDomain = el("input", { class: "input", type: "text", placeholder: "example.com" });
+    const fUser = el("input", { class: "input", type: "text", placeholder: "username" });
+    const fPass = el("input", { class: "input", type: "password", placeholder: "password" });
+    const fNotes = el("input", { class: "input", type: "text", placeholder: "note (optional)" });
+    const addBtn = el("button", { class: "btn small primary" }, "Add");
+    addBtn.addEventListener("click", async () => {
+      const result = await window.jmdb.passwords.add({
+        domain: fDomain.value, username: fUser.value, password: fPass.value, notes: fNotes.value,
+      }).catch(() => null);
+      if (result && result.ok) {
+        fDomain.value = fUser.value = fPass.value = fNotes.value = "";
+        await loadVault();
+        renderVaultRows();
+        toast("Saved to the vault", "success");
+      } else {
+        toast(`Couldn't save: ${(result && result.error) || "vault error"}`, "error");
+      }
+    });
+    vaultPanel.append(el("div", { class: "vault-add" },
+      fDomain, fUser, fPass, fNotes, addBtn));
+
+    function renderVaultRows() {
+      clear(rowsWrap);
+      const query = vaultQuery.trim().toLowerCase();
+      const rows = vaultEntries.filter((entry) =>
+        !query || entry.domain.toLowerCase().includes(query) || entry.username.toLowerCase().includes(query));
+      if (!rows.length) {
+        rowsWrap.append(el("div", { style: { color: "var(--text-dim)", fontSize: "12.5px" } },
+          vaultEntries.length ? "No entries match your search." : "No saved credentials yet."));
+      }
+      for (const entry of rows) {
+        rowsWrap.append(vaultRow(entry));
+      }
+    }
+
+    function vaultRow(entry) {
+      const secret = el("span", { class: "vault-secret", "aria-label": "password" }, "••••••••");
+      let shown = false;
+      const revealBtn = el("button", { class: "btn small", title: "Show password (explicit)" }, "Show");
+      revealBtn.addEventListener("click", async () => {
+        if (shown) { secret.textContent = "••••••••"; shown = false; revealBtn.textContent = "Show"; return; }
+        const result = await window.jmdb.passwords.reveal(entry.id).catch(() => null);
+        if (result && result.ok) {
+          secret.textContent = result.password;
+          shown = true;
+          revealBtn.textContent = "Hide";
+        } else {
+          toast(`Couldn't reveal: ${(result && result.error) || "locked"}`, "error");
+        }
+      });
+      const copyBtn = el("button", { class: "btn small", title: "Copy password to clipboard" }, "Copy");
+      copyBtn.addEventListener("click", async () => {
+        const result = await window.jmdb.passwords.copy(entry.id).catch(() => null);
+        toast(result && result.ok ? "Password copied" : "Copy failed", result && result.ok ? "success" : "error");
+      });
+      const editBtn = el("button", { class: "btn small" }, "Edit");
+      editBtn.addEventListener("click", () => {
+        row.replaceWith(vaultEditRow(entry));
+      });
+      const delBtn = el("button", { class: "btn small danger" }, "Delete");
+      delBtn.addEventListener("click", async () => {
+        const sure = await confirmDialog({
+          title: "Delete vault entry?",
+          body: `Delete the saved credentials for ${entry.username} @ ${entry.domain}? This cannot be undone.`,
+          confirmLabel: "Delete", danger: true,
+        });
+        if (!sure) return;
+        const result = await window.jmdb.passwords.remove(entry.id).catch(() => null);
+        if (result && result.ok) { await loadVault(); renderVaultRows(); toast("Entry deleted", "success"); }
+        else toast("Couldn't delete the entry", "error");
+      });
+      const row = el("div", { class: "vault-row" },
+        el("div", { class: "top" },
+          el("span", { class: "name", title: `${entry.username} @ ${entry.domain}` }, entry.domain),
+          el("span", { class: "user" }, entry.username)),
+        secret,
+        el("div", { class: "actions" }, revealBtn, copyBtn, editBtn, delBtn));
+      return row;
+    }
+
+    function vaultEditRow(entry) {
+      const fDomain = el("input", { class: "input", type: "text", value: entry.domain });
+      const fUser = el("input", { class: "input", type: "text", value: entry.username });
+      const fPass = el("input", { class: "input", type: "password", placeholder: "new password (leave blank to keep)" });
+      const fNotes = el("input", { class: "input", type: "text", value: entry.notes || "" });
+      const saveBtn = el("button", { class: "btn small primary" }, "Save");
+      const row = el("div", { class: "vault-row editing" },
+        el("div", { class: "vault-add" }, fDomain, fUser, fPass, fNotes, saveBtn));
+      saveBtn.addEventListener("click", async () => {
+        const fields = { domain: fDomain.value, username: fUser.value, notes: fNotes.value };
+        if (fPass.value) fields.password = fPass.value;
+        const result = await window.jmdb.passwords.update(entry.id, fields).catch(() => null);
+        if (result && result.ok) { await loadVault(); renderVaultRows(); toast("Entry updated", "success"); }
+        else toast(`Couldn't update: ${(result && result.error) || "vault error"}`, "error");
+      });
+      return row;
+    }
+
+    renderVaultRows();
+    content.append(vaultPanel);
+  }
+
+  /* ------------------------------------------------------------- favorites bar */
+  let favSignature = "";
+  async function renderFavorites() {
+    const favs = await hub.favorites().catch(() => []);
+    clear(favBar);
+    favBar.classList.toggle("hidden", !favs.length);
+    for (const fav of favs) {
+      favBar.append(el("button", {
+        class: "fav-chip", title: fav.url,
+        onclick: () => hub.navigate(fav.url),
+      }, `★ ${fav.name || fav.url}`));
+    }
+  }
+
+  /* ------------------------------------------------------------- hub menu */
+  let menuPanel = null;
+  function closeMenu() { menuPanel?.remove(); menuPanel = null; }
+  async function toggleMenu(force) {
+    if (force === false || menuPanel) { closeMenu(); return; }
+
+    const engineSelect = el("select", { class: "select" },
+      ...Object.keys(SEARCH_ENGINES).map((key) => el("option", {
+        value: key,
+        selected: key === (store.settings.browser_search_engine || "duckduckgo") ? "selected" : null,
+      }, key[0].toUpperCase() + key.slice(1))));
+    engineSelect.addEventListener("change", async () => {
+      try {
+        await saveSettings({ browser_search_engine: engineSelect.value });
+        addressInput.placeholder = `Search with ${engineSelect.value} or enter address`;
+        toast(`Search engine set to ${engineSelect.value}`, "success");
+      } catch {
+        toast("Couldn't save the search engine", "error");
+      }
+    });
+
+    const zoomInput = el("input", {
+      class: "input", type: "number", min: "50", max: "300",
+      value: String(store.settings.browser_default_zoom || 100),
+      style: { width: "90px" },
+    });
+    zoomInput.addEventListener("change", async () => {
+      const value = Math.min(300, Math.max(50, Number(zoomInput.value) || 100));
+      zoomInput.value = String(value);
+      try {
+        await saveSettings({ browser_default_zoom: value });
+        await hub.setDefaultZoom(value);
+        toast(`New tabs will open at ${value}% zoom`, "success");
+      } catch {
+        toast("Couldn't save the default zoom", "error");
+      }
+    });
+
+    const cacheCb = el("input", { type: "checkbox", checked: "checked" });
+    const cookiesCb = el("input", { type: "checkbox" });
+    const historyCb = el("input", { type: "checkbox" });
+    const checkRow = (cb, label, sub) => el("label", { class: "menu-check" }, cb,
+      el("span", {}, label, el("span", { class: "s" }, sub)));
+    const clearBtn = el("button", { class: "btn small danger" }, "Clear browsing data");
+    clearBtn.addEventListener("click", async () => {
+      const types = [
+        ...(cacheCb.checked ? ["cache"] : []),
+        ...(cookiesCb.checked ? ["cookies"] : []),
+        ...(historyCb.checked ? ["history"] : []),
+      ];
+      if (!types.length) { toast("Pick at least one data type", "info"); return; }
+      const sure = await confirmDialog({
+        title: "Clear browsing data?",
+        body: "This clears the selected Browser Hub data. Clearing cookies signs you out of sites you opened in the Hub. This cannot be undone.",
+        confirmLabel: "Clear", danger: true,
+      });
+      if (!sure) return;
+      const result = await hub.clearData(types).catch((error) => ({ ok: false, error: String(error) }));
+      if (result?.ok) {
+        toast(`Cleared: ${Object.keys(result.cleared || {}).join(", ")}`, "success");
+        if (types.includes("history") && historyOpen) await renderHistory();
+      } else {
+        toast(`Couldn't clear data: ${result?.error || "unknown error"}`, "error");
+      }
+    });
+
+    const printBtn = el("button", { class: "btn small" }, "Print this page…");
+    printBtn.addEventListener("click", () => { hub.print(); closeMenu(); });
+    const pdfBtn = el("button", { class: "btn small" }, "Save page as PDF…");
+    pdfBtn.addEventListener("click", async () => {
+      closeMenu();
+      const result = await hub.exportPdf().catch((error) => ({ ok: false, error: String(error) }));
+      if (result?.ok) toast(`PDF saved to ${result.path}`, "success");
+      else if (result?.cancelled) toast("PDF export cancelled", "info");
+      else toast(`PDF export failed: ${result?.error || "unknown error"}`, "error");
+    });
+
+    menuPanel = el("div", { class: "hub-menu" },
+      el("div", { class: "menu-head" }, el("strong", {}, "Browser settings"),
+        el("button", { class: "btn small", onclick: () => closeMenu() }, "Close")),
+      el("div", { class: "menu-row" },
+        el("span", {}, "Search engine"),
+        engineSelect),
+      el("div", { class: "menu-row" },
+        el("span", {}, "Default zoom for new tabs"),
+        zoomInput),
+      el("div", { class: "menu-sep" }),
+      el("div", { class: "menu-title" }, "Clear browsing data"),
+      checkRow(cacheCb, "Cached images and files", "frees disk space"),
+      checkRow(cookiesCb, "Cookies and site data", "signs you out of Hub sites"),
+      checkRow(historyCb, "Browsing history", "stored locally, capped at 5000"),
+      clearBtn,
+      el("div", { class: "menu-sep" }),
+      el("div", { class: "menu-title" }, "This page"),
+      el("div", { class: "menu-actions" }, printBtn, pdfBtn));
+    content.append(menuPanel);
+  }
+
+  /* ------------------------------------------------------------- permission dialog */
+  let permDialog = null;
+  let permTimer = null;
+  function hidePermissionDialog() {
+    clearTimeout(permTimer);
+    permDialog?.remove();
+    permDialog = null;
+  }
+  function showPermissionDialog(request) {
+    hidePermissionDialog();
+    const respond = (allowed, remember) => {
+      window.jmdb.permissions.respond({ id: request.id, allowed, remember: Boolean(remember) });
+      hidePermissionDialog();
+    };
+    permDialog = el("div", { class: "hub-perm" },
+      el("h4", {}, "Permission request"),
+      el("p", { style: { lineHeight: "1.5" } }, request.message || `${request.origin} wants to use: ${request.permission}`),
+      el("p", { style: { color: "var(--text-dim)", fontSize: "12.5px", margin: "0 0 10px" } }, request.origin || ""),
+      el("div", { class: "menu-actions" },
+        el("button", { class: "btn small", onclick: () => respond(false, false) }, "Deny"),
+        el("button", { class: "btn small", onclick: () => respond(true, true) }, "Always allow"),
+        el("button", { class: "btn small primary", onclick: () => respond(true, false) }, "Allow")));
+    content.append(permDialog);
+    // after 30s main falls back to the native dialog; stop showing this one
+    permTimer = setTimeout(hidePermissionDialog, 30000);
   }
 
   /* ------------------------------------------------------------- history */
   let historyPanel = null;
+  let historyQuery = "";
   async function renderHistory() {
     historyPanel?.remove();
-    const entries = await hub.history().catch(() => []);
+    const entries = await hub.history(historyQuery || undefined).catch(() => []);
+    const search = el("input", {
+      class: "input", type: "search", placeholder: "Search history…",
+      value: historyQuery, style: { width: "220px" },
+    });
+    search.addEventListener("input", () => {
+      historyQuery = search.value;
+      renderHistory();
+    });
     historyPanel = el("div", { class: "hub-history" });
     const head = el("div", { class: "page-head" },
       el("div", {}, el("h1", {}, "Browser history"),
-        el("div", { class: "sub" }, `${entries.length} recent entries, stored locally`)),
+        el("div", { class: "sub" }, `${entries.length} ${historyQuery ? "matching" : "recent"} entries, stored locally`)),
       el("div", { class: "spacer" }),
+      search,
       el("button", { class: "btn small danger", onclick: async () => { await hub.clearHistory(); renderHistory(); } }, "Clear history"),
       el("button", { class: "btn small", onclick: () => { historyOpen = false; historyPanel.remove(); historyPanel = null; } }, "Close"));
     historyPanel.append(head);
@@ -284,7 +663,11 @@ export default async function render(container, route) {
 
   /* ------------------------------------------------------------- IPC */
   const offs = [];
-  offs.push(window.jmdb.on("hub:tabs", (list) => { tabs = list; renderTabs(); }));
+  offs.push(window.jmdb.on("hub:tabs", (list) => {
+    tabs = list; renderTabs();
+    const signature = tabs.filter((tab) => tab.pinned).map((tab) => tab.url).sort().join("|");
+    if (signature !== favSignature) { favSignature = signature; renderFavorites(); }
+  }));
   offs.push(window.jmdb.on("hub:tab-active", (tab) => {
     activeTab = tab; renderActive(); hideBanner();
   }));
@@ -310,15 +693,22 @@ export default async function render(container, route) {
   offs.push(window.jmdb.on("hub:load-error", (data) => {
     showBanner(`Couldn't load ${data.url || "page"}: ${data.description || "network error"}. Check your connection; sites open in the hub need internet.`, [["Retry", () => hub.reload()], ["Dismiss", () => hideBanner()]]);
   }));
+  offs.push(window.jmdb.on("permissions:asked", (request) => showPermissionDialog(request)));
   offs.push(window.jmdb.on("downloads:updated", (list) => {
     downloads = list;
     downloadsBtn.style.color = downloads.some((item) => item.state === "progressing") ? "var(--accent)" : "";
-    if (downloadsOpen) renderDownloads();
+    renderDownloadBar();
   }));
 
   // initial state: list tabs; if none, restore-or-create the first tab; activate the first
   tabs = await hub.tabs();
-  if (!tabs.length) {
+  // a ?url= param (Services cards) opens that site in a new tab directly —
+  // the page owns the whole tab lifecycle, no cross-page timing tricks
+  const wantedUrl = route && route.params ? route.params.get("url") : null;
+  if (wantedUrl && /^https?:\/\//i.test(wantedUrl)) {
+    await hub.createTab(wantedUrl).catch(() => {});
+    tabs = await hub.tabs();
+  } else if (!tabs.length) {
     // main restores the previous session's tabs on the Hub's first activation;
     // if still none (fresh profile), open the home page in a tab
     await hub.createTab("https://duckduckgo.com").catch(() => {});
@@ -330,6 +720,7 @@ export default async function render(container, route) {
   }
   renderTabs();
   renderActive();
+  renderFavorites();
 
   // cleanup when navigating away from the hub page
   const disconnect = () => {
@@ -337,7 +728,10 @@ export default async function render(container, route) {
       observer.disconnect();
       document.removeEventListener("keydown", keyHandler);
       for (const off of offs) off();
+      clearTimeout(downloadHideTimer);
       hideBanner();
+      closeMenu();
+      hidePermissionDialog();
       window.removeEventListener("hashchange", disconnect);
     }
   };

@@ -28,7 +28,20 @@ class OmdbProvider(MetadataProvider):
     requires_key = True
     key_provider_name = "omdb"
     capabilities = {"movie", "tv"}
+    website = "https://www.omdbapi.com"
+    supplies = "Movie metadata fallback via IMDb IDs"
 
+    def test_connection(self, api_key: str = "") -> dict:
+        key = api_key or self.api_key
+        if not key:
+            return {"ok": False, "detail": "no API key configured"}
+        try:
+            data = self.http.get_json(BASE, params={"i": "tt3896198", "apikey": key}, provider=self.id)
+            if data.get("Response") == "True":
+                return {"ok": True, "detail": "OMDb accepted the key"}
+            return {"ok": False, "detail": data.get("Error") or "OMDb rejected the key"}
+        except Exception as exc:
+            return {"ok": False, "detail": str(exc)}
     def _get(self, **params) -> dict:
         params["apikey"] = self._require_key()
         data = self.http.get_json(BASE, params=params, provider=self.id)

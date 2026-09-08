@@ -46,6 +46,12 @@ class DownloadManager {
     };
     this.items.set(id, record);
 
+    // real control handles — the UI's Pause/Resume/Cancel buttons call
+    // these; without them the buttons would do nothing (fake controls)
+    record.pause = () => item.pause?.();
+    record.resume = () => item.resume?.();
+    record.cancel = () => item.cancel?.();
+
     item.on("updated", (_event, state) => {
       record.received = item.getReceivedBytes();
       record.state = state === "interrupted" ? "interrupted" : "progressing";

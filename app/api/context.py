@@ -26,6 +26,7 @@ class ScanManager:
             "finished_at": None,
             "location_id": None,
             "current_path": "",
+            "phase": "",
             "files_seen": 0,
             "files_indexed": 0,
             "errors": 0,
@@ -41,6 +42,7 @@ class ScanManager:
                 self.status["current_path"] = getattr(event, "current_path", "")
                 self.status["files_seen"] = getattr(event, "files_seen", 0)
                 self.status["files_indexed"] = getattr(event, "files_indexed", 0)
+                self.status["phase"] = getattr(event, "phase", "")
                 self.status["location_id"] = getattr(event, "location_id", None)
         elif name == "LibraryScanStarted":
             with self._lock:
@@ -77,6 +79,7 @@ class ScanManager:
                 finished_at=None,
                 location_id=location_id,
                 current_path="",
+                phase="indexing",
                 files_seen=0,
                 files_indexed=0,
                 errors=0,

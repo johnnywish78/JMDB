@@ -113,6 +113,13 @@ class SecretsStore:
                 return env_value
         return self._load().get(provider, "")
 
+    def env_value(self, provider: str) -> str:
+        """The value coming from the environment only (may be empty)."""
+        env_name = ENV_VARS.get(provider)
+        if env_name:
+            return (self._env.get(env_name) or "").strip()
+        return ""
+
     def set(self, provider: str, value: str) -> None:
         data = dict(self._load())
         if value:

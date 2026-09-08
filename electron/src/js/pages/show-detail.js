@@ -3,6 +3,7 @@ import { el, icon, formatRuntime, yearOf, toast } from "../ui.js";
 import { hero, factBox, personCard, section, posterCard } from "../components.js";
 import { navigate } from "../router.js";
 import { openPlayer } from "../player.js";
+import { metadataSourceBadge } from "./movie-detail.js";
 
 export default async function render(container, route, params) {
   const id = Number(params[0]);
@@ -116,7 +117,8 @@ export default async function render(container, route, params) {
           toast(`Refresh failed: ${error.message}`, "error");
         }
       },
-    }, icon("refresh"), "Refresh metadata")));
+    }, icon("refresh"), "Refresh metadata"),
+    metadataSourceBadge(show)));
 
   layout.append(poster, info);
   container.append(layout);

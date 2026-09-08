@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -78,10 +79,13 @@ class ProbeTools:
     # -- ffprobe ------------------------------------------------------------
     def _probe_with_ffprobe(self, path: str) -> ProbeResult | None:
         try:
+            # NOTE: ffmpeg-family CLIs have no "--" end-of-options marker
+            # (it is parsed as a filename — which made every probe fail);
+            # an ABSOLUTE path can never be mistaken for an option instead.
             proc = subprocess.run(
                 [
                     self._ffprobe, "-v", "error", "-print_format", "json",
-                    "-show_format", "-show_streams", "--", path,
+                    "-show_format", "-show_streams", os.path.abspath(path),
                 ],
                 capture_output=True, text=True, timeout=TIMEOUT,
             )
@@ -145,7 +149,7 @@ class ProbeTools:
     def _probe_with_ffmpeg(self, path: str) -> ProbeResult | None:
         try:
             proc = subprocess.run(
-                [self._ffmpeg, "-hide_banner", "-i", "--", path],
+                [self._ffmpeg, "-hide_banner", "-i", os.path.abspath(path)],
                 capture_output=True, text=True, timeout=TIMEOUT,
             )
         except (OSError, subprocess.TimeoutExpired):
@@ -168,7 +172,11 @@ class ProbeTools:
             if kind == "Video":
                 codec = rest.strip().split(" ")[0].split("(")[0]
                 result.video_codec = codec
-                dims = re.search(r"(\d{2,5})x(\d{2,5})", rest)
+                # dimensions live AFTER the first comma ("hevc (Main 10), ...,
+                # 640x360 [SAR ...]"), so search the surrounding output, not
+                # just the codec token
+                segment = output[match.start():match.end() + 240]
+                dims = re.search(r"(\d{2,5})x(\d{2,5})", segment)
                 if dims:
                     result.width, result.height = int(dims.group(1)), int(dims.group(2))
             elif kind == "Audio":

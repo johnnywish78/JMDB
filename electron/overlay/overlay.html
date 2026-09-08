@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'">
+<title>JMDB Player</title>
+<style>
+  :root {
+    --bg: rgba(10, 12, 17, .92);
+    --bar: rgba(13, 16, 22, .96);
+    --text: #e8eaf0;
+    --dim: #9aa3b5;
+    --accent: #ffb454;
+    --surface: #1a1f2b;
+    --border: #262c3a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text);
+    user-select: none; -webkit-user-select: none; cursor: default; }
+  #surface { position: fixed; inset: 0; background: transparent; }
+  #chrome { position: fixed; inset: 0; display: flex; flex-direction: column;
+    justify-content: space-between; opacity: 1; transition: opacity .25s; pointer-events: none; }
+  #chrome.hidden { opacity: 0; pointer-events: none !important; }
+  #chrome > div { pointer-events: auto; }
+
+  .topbar { display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+    background: linear-gradient(rgba(8,10,15,.85), transparent); }
+  .topbar .title { font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar .engine { font-size: 11px; color: var(--dim); border: 1px solid var(--border);
+    padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .topbar .spacer { flex: 1; }
+
+  .btn { background: rgba(26, 31, 43, .85); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #1a1206; border-color: var(--accent); font-weight: 700; }
+  .btn.icon { width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .btn svg { width: 18px; height: 18px; }
+
+  .bottombar { padding: 0 16px 14px; background: linear-gradient(transparent, rgba(8,10,15,.88) 60%); }
+
+  .seekrow { display: flex; align-items: center; gap: 10px; }
+  .time { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; min-width: 52px; text-align: center; }
+  .seek { position: relative; flex: 1; height: 18px; display: flex; align-items: center; cursor: pointer; }
+  .seek .track { position: absolute; left: 0; right: 0; height: 5px; border-radius: 3px; background: rgba(255,255,255,.18); overflow: hidden; }
+  .seek .buffered { position: absolute; left: 0; height: 5px; background: rgba(255,255,255,.3); border-radius: 3px; }
+  .seek .fill { position: absolute; left: 0; height: 5px; background: var(--accent); border-radius: 3px; }
+  .seek .knob { position: absolute; width: 13px; height: 13px; border-radius: 50%; background: var(--accent);
+    transform: translateX(-50%); box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+
+  .controls { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .vol { display: flex; align-items: center; gap: 6px; }
+  .vol input[type=range] { width: 90px; accent-color: var(--accent); }
+  .speed, .menu-btn { position: relative; }
+  .menu { position: absolute; bottom: calc(100% + 8px); left: 0; min-width: 230px; max-height: 300px; overflow: auto;
+    background: var(--bar); border: 1px solid var(--border); border-radius: 10px; padding: 6px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.55); display: none; z-index: 5; }
+  .menu.open { display: block; }
+  .menu button { display: flex; width: 100%; justify-content: space-between; gap: 14px; text-align: left;
+    background: none; border: 0; color: var(--text); padding: 8px 10px; border-radius: 7px;
+    font-size: 13px; cursor: pointer; }
+  .menu button:hover { background: var(--surface); }
+  .menu button.active { color: var(--accent); font-weight: 700; }
+  .menu .hint { color: var(--dim); font-size: 11px; }
+  .badge { font-size: 11px; color: var(--dim); border: 1px solid var(--border); padding: 2px 8px; border-radius: 999px; }
+
+  .finished { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+    background: rgba(8, 10, 15, .78); z-index: 10; }
+  .finished.show { display: flex; }
+  .finished h3 { margin: 0; font-size: 26px; }
+  .finished p { margin: 0; color: var(--dim); }
+  .finished .row { display: flex; gap: 10px; }
+  .countdown { font-size: 12px; color: var(--dim); }
+
+  .loading { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); display: none;
+    background: var(--bar); border: 1px solid var(--border); color: var(--dim);
+    border-radius: 999px; padding: 5px 14px; font-size: 12px; z-index: 8; }
+  .loading.show { display: block; }
+</style>
+</head>
+<body>
+  <div id="surface"></div>
+  <div id="chrome">
+    <div class="topbar">
+      <button class="btn icon" id="back" title="Back to JMDB (Esc)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <div class="title" id="title"></div>
+      <span class="engine" id="engine">mpv</span>
+      <div class="spacer"></div>
+      <button class="btn icon" id="fs" title="Fullscreen (F)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+      </button>
+      <button class="btn icon" id="close" title="Close the player">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="bottombar">
+      <div class="seekrow">
+        <span class="time" id="cur">0:00</span>
+        <div class="seek" id="seek">
+          <div class="track"></div>
+          <div class="buffered" id="buffered"></div>
+          <div class="fill" id="fill"></div>
+          <div class="knob" id="knob"></div>
+        </div>
+        <span class="time" id="dur">0:00</span>
+      </div>
+      <div class="controls">
+        <button class="btn icon" id="prev" title="Previous (P)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 20L9 12l10-8v16zM5 19V5"/></svg></button>
+        <button class="btn icon" id="play" title="Play/Pause (Space)"><svg id="playicon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+        <button class="btn icon" id="next" title="Next (N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4l10 8-10 8V4zM19 5v14"/></svg></button>
+        <div class="vol">
+          <button class="btn icon" id="mute" title="Mute (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path id="volwave" d="M15.5 8.5a5 5 0 0 1 0 7M18.4 5.6a9 9 0 0 1 0 12.8"/></svg></button>
+          <input type="range" id="volume" min="0" max="130" step="1" value="100">
+        </div>
+        <div class="speed">
+          <button class="btn" id="speedbtn">1.0×</button>
+        </div>
+        <div class="menu-btn">
+          <button class="btn" id="audiobtn">Audio</button>
+          <div class="menu" id="audiomenu"></div>
+        </div>
+        <div class="menu-btn">
+          <button class="btn" id="subbtn">Subtitles</button>
+          <div class="menu" id="submenu"></div>
+        </div>
+        <span class="badge" id="subdelay" title="Subtitle delay (J / L)">subs 0.0s</span>
+      </div>
+    </div>
+  </div>
+  <div class="loading" id="loading">Loading…</div>
+  <div class="finished" id="finished">
+    <h3>Finished</h3>
+    <p>That's the end of this one.</p>
+    <div class="row">
+      <button class="btn" id="replay">Watch again</button>
+      <button class="btn primary" id="nextend">Next episode</button>
+      <button class="btn" id="backend">Back to library</button>
+    </div>
+    <div class="countdown" id="countdown"></div>
+  </div>
+<script src="overlay.js"></script>
+</body>
+</html>

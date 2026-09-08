@@ -6,7 +6,7 @@
  * browser handling, and the strict preload bridge. The renderer is plain
  * same-origin web content served by the backend — it never sees Node.
  */
-const { app, BrowserWindow, ipcMain, session, nativeTheme } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, safeStorage, session } = require("electron");
 const path = require("node:path");
 const { URL } = require("node:url");
 
@@ -16,6 +16,12 @@ const { DownloadManager } = require("./main/downloads");
 const { PermissionManager } = require("./main/permissions");
 const { buildContextMenu } = require("./main/context-menu");
 const { ExternalBrowser } = require("./main/external");
+const { PasswordVault } = require("./main/passwords");
+const { registerIpc } = require("./main/ipc");
+const { MpvEngine } = require("./main/mpv");
+
+/** Matches the backend's browser_default_zoom default (percent). */
+const DEFAULT_ZOOM_PERCENT = 100;
 
 app.setName("JMDB");
 
@@ -31,6 +37,9 @@ let hub = null;
 let downloads = null;
 /** @type {PermissionManager} */
 let permissions = null;
+/** @type {PasswordVault} */
+let vault = null;
+let mpvEngineCleanup = null;
 let quitting = false;
 
 // ----------------------------------------------------------------------------
@@ -148,14 +157,66 @@ async function boot() {
   }
 
   hardenSession(session.fromPartition("persist:jmdb"));
+
+  // The window must exist before the managers: PermissionManager and
+  // DownloadManager capture it to route dialogs and progress to the renderer,
+  // so constructing them earlier would freeze a null window forever.
+  createWindow();
+
   permissions = new PermissionManager(mainWindow);
   downloads = new DownloadManager(mainWindow);
+  vault = new PasswordVault({
+    app, safeStorage, clipboard,
+    log: (message) => console.log(message),
+  });
+  // seed the Hub with the saved browser settings so even session-restored
+  // tabs honor them (JavaScript is fixed per WebContentsView at creation)
+  let browserSettings = {};
+  try {
+    const response = await fetch(new URL("/api/settings", info.url), {
+      headers: { Authorization: `Bearer ${info.token}` },
+    });
+    if (response.ok) browserSettings = (await response.json()).values || {};
+  } catch {
+    /* defaults are fine; the renderer pushes settings on hub mount anyway */
+  }
   hub = new Hub({
     window: () => mainWindow,
     onExternal: (url) => ExternalBrowser.open(url),
+    cookiesEnabled: browserSettings.browser_allow_cookies !== false,
+    javascriptEnabled: browserSettings.browser_enable_javascript !== false,
+    defaultZoom: Number(browserSettings.browser_default_zoom) || DEFAULT_ZOOM_PERCENT,
   });
 
-  createWindow();
+  // hub-tab permission requests surface as the in-page JPNH-style dialog
+  permissions.setHubLookup((wc) => hub != null && hub.isTabWebContents(wc));
+
+  // embedded multi-codec player: mpv renders inside the main window and is
+  // driven over its JSON IPC; a child overlay window carries the controls.
+  // Created AFTER the window exists (it parents to it) and BEFORE registerIpc.
+  const mpvEngine = new MpvEngine({
+    getWindow: () => mainWindow,
+    backendInfo: () => (backend ? { url: backend.url, token: backend.token } : null),
+    sendToRenderer: (channel, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+    },
+  });
+  mpvEngineCleanup = () => mpvEngine.closeInternal("app-quit", {}).catch(() => {});
+
+  // Shared IPC surface: registered exactly once, only AFTER every real
+  // manager instance exists, and BEFORE the renderer loads so no bridge
+  // invoke can race a missing handler. (This used to run in whenReady()
+  // before boot() created the managers — the real-Electron startup crash
+  // "registerIpc: hub, downloads and permissions instances are required".)
+  registerIpc({
+    hub,
+    downloads,
+    permissions,
+    backend,
+    vault,
+    getWindow: () => mainWindow,
+    mpv: mpvEngine,
+  });
 
   const bootUrl = new URL("/app/boot", info.url);
   bootUrl.searchParams.set("token", info.token);
@@ -176,62 +237,15 @@ async function boot() {
   }
 }
 
-// ----------------------------------------------------------------------------
-// IPC surface (everything the renderer may ask the OS for)
-// ----------------------------------------------------------------------------
-function registerIpc() {
-  ipcMain.handle("app:info", () => ({
-    version: app.getVersion(),
-    electron: process.versions.electron,
-    chrome: process.versions.chrome,
-    node: process.versions.node,
-    platform: process.platform,
-    packaged: app.isPackaged,
-    backendUrl: backend ? backend.url : null,
-    externalBrowsers: ExternalBrowser.list(),
-  }));
-
-  ipcMain.handle("open-external", (_event, url) => {
-    if (typeof url !== "string") return { ok: false };
-    if (!/^https?:\/\//i.test(url)) return { ok: false };
-    return ExternalBrowser.open(url);
-  });
-
-  ipcMain.handle("hub:createTab", (_e, url) => hub.createTab(url));
-  ipcMain.handle("hub:closeTab", (_e, id) => hub.closeTab(id));
-  ipcMain.handle("hub:activateTab", (_e, id) => hub.activateTab(id));
-  ipcMain.handle("hub:navigate", (_e, url) => hub.navigate(url));
-  ipcMain.handle("hub:back", () => hub.back());
-  ipcMain.handle("hub:forward", () => hub.forward());
-  ipcMain.handle("hub:reload", () => hub.reload());
-  ipcMain.handle("hub:stop", () => hub.stop());
-  ipcMain.handle("hub:home", () => hub.home());
-  ipcMain.handle("hub:find", (_e, text, opts) => hub.find(text, opts || {}));
-  ipcMain.handle("hub:clearFind", () => hub.clearFind());
-  ipcMain.handle("hub:zoom", (_e, direction) => hub.zoom(direction));
-  ipcMain.handle("hub:reopenTab", () => hub.reopenTab());
-  ipcMain.handle("hub:tabs", () => hub.tabSummaries());
-  ipcMain.handle("hub:setBounds", (_e, rect) => hub.setBounds(rect));
-  ipcMain.handle("hub:setVisible", (_e, visible) => hub.setVisible(visible));
-  ipcMain.handle("hub:history", () => hub.recentHistory());
-  ipcMain.handle("hub:clearHistory", () => hub.clearHistory());
-
-  ipcMain.handle("downloads:list", () => downloads.list());
-  ipcMain.handle("downloads:cancel", (_e, id) => downloads.cancel(id));
-  ipcMain.handle("downloads:pause", (_e, id) => downloads.pause(id));
-  ipcMain.handle("downloads:resume", (_e, id) => downloads.resume(id));
-  ipcMain.handle("downloads:openInFolder", (_e, id) => downloads.openInFolder(id));
-
-  ipcMain.handle("permissions:respond", (_e, payload) =>
-    permissions.respondFromRenderer(payload)
-  );
-}
 
 // ----------------------------------------------------------------------------
 // lifecycle
 // ----------------------------------------------------------------------------
 app.whenReady().then(() => {
-  registerIpc();
+  // boot() owns the full startup order: backend → window → managers →
+  // vault → Hub → shared IPC registration → renderer load. The shared
+  // registerIpc() in main/ipc.js is called from boot() once every real
+  // instance exists (registering here, before boot(), passed null managers).
   nativeTheme.on("updated", () => {
     if (mainWindow) {
       mainWindow.webContents.send("native-theme-changed", {
@@ -251,6 +265,7 @@ app.on("before-quit", (event) => {
   if (quitting) return;
   quitting = true;
   if (hub) hub.setVisible(false);
+  if (mpvEngineCleanup) mpvEngineCleanup();
   if (backend) {
     event.preventDefault();
     backend

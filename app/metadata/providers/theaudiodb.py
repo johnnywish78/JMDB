@@ -23,6 +23,19 @@ class TheAudioDbProvider(MetadataProvider):
     requires_key = False
     capabilities = {"artist", "album"}
     min_request_interval = 0.5
+    website = "https://www.theaudiodb.com"
+    supplies = "Music metadata and artwork fallback (works with the free community key)"
+
+    def test_connection(self, api_key: str = "") -> dict:
+        key = api_key or self.key
+        try:
+            data = self.http.get_json(f"{BASE}/{key}/search.php", params={"s": "beatles"}, provider=self.id)
+            artists = data.get("artists") if isinstance(data, dict) else None
+            if artists:
+                return {"ok": True, "detail": "TheAudioDB reachable"}
+            return {"ok": False, "detail": "TheAudioDB returned no data for the test query"}
+        except Exception as exc:
+            return {"ok": False, "detail": str(exc)}
 
     @property
     def key(self) -> str:

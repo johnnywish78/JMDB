@@ -71,6 +71,8 @@ class ScanCounts:
 
 class LibraryScanner:
     CHECK_INTERVAL = 25  # files between pause/cancel checks
+    PROGRESS_INTERVAL = 0.5  # seconds between scan_progress events
+    PROGRESS_EVERY_FILES = 10  # …or every N files, whichever comes first
 
     def __init__(
         self,
@@ -200,6 +202,24 @@ class LibraryScanner:
         # Phase A: walk + index ------------------------------------------------
         entries: list[dict] = []
         seen: set[str] = set()
+        last_progress = time.monotonic()
+        self._publish_progress(location_id, counts, root, phase="indexing")
+
+        def _maybe_progress(directory: str) -> None:
+            """Emit scan_progress every N files or T seconds, whichever first.
+
+            Time-based emission keeps live progress visible on slow network
+            mounts; count-based keeps it granular on fast local disks.
+            """
+            nonlocal last_progress
+            now = time.monotonic()
+            if (
+                counts.files_seen % self.PROGRESS_EVERY_FILES == 0
+                or now - last_progress >= self.PROGRESS_INTERVAL
+            ):
+                self._publish_progress(location_id, counts, directory, phase="indexing")
+                last_progress = now
+
         for found in walk_files(
             root,
             include_hidden=self.options.include_hidden,
@@ -223,14 +243,7 @@ class LibraryScanner:
             counts.files_seen += 1
             if counts.files_seen % self.CHECK_INTERVAL == 0:
                 self._check_control(location_id, counts)
-                self.events.publish(
-                    LibraryScanProgress(
-                        location_id=location_id,
-                        current_path=found.directory,
-                        files_seen=counts.files_seen,
-                        files_indexed=counts.files_added,
-                    )
-                )
+            _maybe_progress(found.directory)
 
         if self._cancel_flag.is_set():
             raise ScanCancelled()
@@ -242,6 +255,7 @@ class LibraryScanner:
         id_by_path: dict[str, int] = result["ids"]
 
         # Phase B: match videos to episodes / movies ---------------------------------
+        self._publish_progress(location_id, counts, root, phase="matching")
         video_rows = self.db.query(
             "SELECT id, path, filename, directory, size_bytes FROM media_files"
             " WHERE library_location_id=? AND kind='video' AND is_missing=0",
@@ -280,6 +294,7 @@ class LibraryScanner:
         self._match_music(audio_rows, counts)
 
         # Phase D: local artwork ------------------------------------------------------
+        self._publish_progress(location_id, counts, root, phase="artwork")
         image_rows = self.db.query(
             "SELECT id, path, filename, directory FROM media_files"
             " WHERE library_location_id=? AND kind='image' AND is_missing=0",
@@ -294,6 +309,24 @@ class LibraryScanner:
         self._check_control(location_id, counts)
 
     # -- matching helpers ------------------------------------------------------------
+    def _publish_progress(
+        self,
+        location_id: int | None,
+        counts: ScanCounts,
+        current_path: str = "",
+        phase: str = "indexing",
+    ) -> None:
+        """Fan out one scan_progress event (throttled by the callers)."""
+        self.events.publish(
+            LibraryScanProgress(
+                location_id=location_id,
+                current_path=current_path,
+                files_seen=counts.files_seen,
+                files_indexed=counts.files_added + counts.files_updated,
+                phase=phase,
+            )
+        )
+
     def _match_shows(self, episode_candidates, counts: ScanCounts, location_id) -> None:
         from app.domain.models import TvShow
 
@@ -439,6 +472,11 @@ class LibraryScanner:
                 season_number = season_poster_filename(row["filename"])
                 owner = self._owner_in_directory(row["directory"])
                 if owner is None:
+                    # Standard TV layout: poster.jpg sits in the SHOW root while
+                    # the video files live in season subfolders. Attach it to
+                    # the single show whose episodes live below this directory.
+                    owner = self._show_owning_subtree(row["directory"])
+                if owner is None:
                     continue
                 owner_type, owner_id, _ = owner
                 if season_number is not None and owner_type == "tv_show":
@@ -455,6 +493,32 @@ class LibraryScanner:
             except Exception:
                 logger.exception("local artwork attach failed: %s", row["filename"])
                 counts.errors += 1
+
+    def _show_owning_subtree(self, directory: str):
+        """The single TV show whose episode files live in or below ``directory``.
+
+        Covers both real-world layouts: ``TV/Show/poster.jpg`` (videos in
+        season subfolders) and ``TV/Show/Season 01/season01.jpg`` (videos in
+        the same folder). Returns ("tv_show", id, directory) or None when the
+        directory is not owned by exactly one show.
+        """
+        norm = str(directory).replace("\\", "/").rstrip("/")
+        below = (norm + "/").replace("%", r"\%").replace("_", r"\_")
+        rows = self.db.query(
+            "SELECT DISTINCT e.tv_show_id AS show_id"
+            " FROM media_file_links l"
+            " JOIN media_files f ON f.id=l.media_file_id"
+            " JOIN episodes e ON e.id=l.media_item_id"
+            " WHERE l.media_item_type='episode' AND f.kind='video'"
+            " AND (replace(f.directory, '\\', '/') = ?"
+            "      OR replace(f.directory, '\\', '/') LIKE ? ESCAPE '\\')"
+            " LIMIT 2",
+            # equality gets the raw path; only the LIKE pattern is escaped
+            (norm, below + "%"),
+        )
+        if len(rows) != 1:
+            return None
+        return "tv_show", rows[0]["show_id"], directory
 
     def _owner_in_directory(self, directory: str):
         """The single media item owning video files directly inside a directory."""

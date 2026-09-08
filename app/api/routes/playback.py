@@ -45,12 +45,14 @@ def _queue_for(services, media_type: str, media_id: int, context: dict | None):
     repos = services.repos
     entries: list[dict] = []
 
-    def entry(media_type_: str, media_id_: int, title: str, subtitle: str = "") -> dict:
+    def entry(media_type_: str, media_id_: int, title: str, subtitle: str = "",
+              artwork_path: str = "") -> dict:
         return {
             "media_type": media_type_,
             "media_id": media_id_,
             "title": title,
             "subtitle": subtitle,
+            "artwork_path": artwork_path,
         }
 
     context = context or {}
@@ -60,6 +62,14 @@ def _queue_for(services, media_type: str, media_id: int, context: dict | None):
             detail and detail.get("season_id")
         )
         if season_id:
+            # One lookup each for the season/show fallback art, reused by every
+            # queue entry that has no still of its own.
+            season_poster = repos.artwork.local_path("season", int(season_id), "season_poster")
+            show_poster = ""
+            if detail and detail.get("tv_show_id"):
+                show_poster = detail.get("poster_path") or repos.artwork.local_path(
+                    "tv_show", int(detail["tv_show_id"]), "poster"
+                )
             for episode in repos.tv.episodes_for_season(season_id, services.profile.id):
                 if episode.get("file_path"):
                     entries.append(entry(
@@ -67,6 +77,7 @@ def _queue_for(services, media_type: str, media_id: int, context: dict | None):
                         f"S{episode.get('season_number', 0):02d}"
                         f"E{episode.get('episode_number', 0):02d} · "
                         f"{episode.get('show_title', '')}",
+                        artwork_path=episode.get("still_path") or season_poster or show_poster,
                     ))
     elif media_type == "track":
         album_id = context.get("type") == "album" and context.get("id")
@@ -76,13 +87,17 @@ def _queue_for(services, media_type: str, media_id: int, context: dict | None):
                     entries.append(entry(
                         "track", track["id"], track["title"],
                         f"Track {track.get('track_number', 0)}",
+                        artwork_path=track.get("cover_path") or "",
                     ))
     if not entries:
         playable = _catalog_for(services, media_type)
         item = playable.playable(media_id) if playable else None
         if item is None:
             return []
-        entries.append(entry(media_type, media_id, item.title, item.subtitle))
+        entries.append(entry(
+            media_type, media_id, item.title, item.subtitle,
+            artwork_path=getattr(item, "artwork_path", "") or "",
+        ))
     return entries
 
 
@@ -109,6 +124,7 @@ def _subtitle_list(services, media_file_id: int) -> list[dict]:
             "language": option.language,
             "kind": url_kind,
             "url": f"/api/subtitles?path={path}",
+            "path": path,  # local .srt/.vtt path for the mpv engine (--sub-file)
         })
     return out
 
@@ -142,6 +158,20 @@ def playback_start(request: Request, body: dict) -> dict:
     suffix = path.suffix.lower()
     mime = MIME_OVERRIDES.get(suffix) or mimetypes.guess_type(str(path))[0] or "application/octet-stream"
 
+    # probe facts (ffprobe-derived, best-effort): let the player show the real
+    # codec and decide honestly whether the embedded Chromium renderer can
+    # decode it (e.g. HEVC needs hardware decode on this machine or an
+    # external player) instead of failing with a silent black screen.
+    probe = getattr(media_file, "probe", None) if media_file else None
+    probe = probe or {}
+    audio_tracks = []
+    for track in (probe.get("audio_tracks") or [])[:8]:
+        audio_tracks.append({
+            "language": track.get("language") or "",
+            "codec": track.get("codec") or "",
+            "channels": track.get("channels") or 0,
+        })
+
     return {
         "session_id": session_id,
         "media": {
@@ -152,9 +182,15 @@ def playback_start(request: Request, body: dict) -> dict:
             "file": {
                 "id": playable.media_file_id,
                 "name": path.name,
+                "path": str(path),  # absolute local path: lets the embedded
+                # mpv engine open the file directly (same machine as the app)
                 "size": (media_file.size_bytes if media_file else 0),
                 "mime": mime,
                 "exists": path.exists(),
+                "video_codec": probe.get("video_codec") or "",
+                "width": probe.get("width") or 0,
+                "height": probe.get("height") or 0,
+                "audio_tracks": audio_tracks,
             },
             "artwork_path": playable.artwork_path,
         },

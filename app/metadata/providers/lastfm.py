@@ -17,7 +17,20 @@ class LastFmProvider(MetadataProvider):
     requires_key = True
     key_provider_name = "lastfm"
     capabilities = {"artist", "album"}
+    website = "https://www.last.fm/api"
+    supplies = "Music metadata fallback (artist/album info)"
 
+    def test_connection(self, api_key: str = "") -> dict:
+        key = api_key or self.api_key
+        if not key:
+            return {"ok": False, "detail": "no API key configured"}
+        try:
+            data = self.http.get_json(BASE, params={"method": "artist.getinfo", "artist": "beatles", "api_key": key, "format": "json"}, provider=self.id)
+            if "error" in data:
+                return {"ok": False, "detail": data.get("message") or "Last.fm rejected the key"}
+            return {"ok": True, "detail": "Last.fm accepted the key"}
+        except Exception as exc:
+            return {"ok": False, "detail": str(exc)}
     def _call(self, method: str, **params) -> dict:
         params.update(
             {

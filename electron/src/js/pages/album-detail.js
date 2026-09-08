@@ -1,4 +1,5 @@
 import { api, artUrl } from "../api.js";
+import { metadataSourceBadge } from "./movie-detail.js";
 import { el, icon } from "../ui.js";
 import { factBox } from "../components.js";
 import { trackRow } from "../components.js";
@@ -45,6 +46,7 @@ export default async function render(container, route, params) {
   });
   if (!(album.tracks || []).length) list.append(el("div", { class: "empty" }, icon("music"), el("h3", {}, "No tracks"), el("p", {}, "Scan the music folder to index this album's files.")));
   info.append(list);
+  info.append(el("div", { class: "chip-row", style: { marginTop: "8px" } }, metadataSourceBadge(album)));
 
   layout.append(cover, info);
   container.append(layout);
