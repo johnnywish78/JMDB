@@ -1,22 +1,15 @@
 """Qt worker that scans folders off the UI thread.
 
-Pipeline: filesystem walk → detector → indexer → (optional) metadata enrich.
-Emits plain dicts so screens never touch domain objects across threads.
+Thin adapter over the Qt-free :mod:`app.library.scan_core` so the legacy
+PyQt6 UI keeps its signal-based API while the FastAPI backend and tests reuse
+the same pipeline without Qt.
 """
 from __future__ import annotations
 
-import logging
-import time
-from pathlib import Path
-
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from app.domain.models import DetectedMedia
-from app.library.filesystem import iter_media_files
-from app.library.indexer import LibraryIndexer
-from app.library.media_detector import detect
-
-log = logging.getLogger("jmdb.scan")
+from app.library.indexer import LibraryIndexer  # noqa: F401  (re-export for callers)
+from app.library.scan_core import run_scan
 
 
 class ScanWorker(QThread):
@@ -32,43 +25,20 @@ class ScanWorker(QThread):
         self.indexer = indexer
         self.metadata = metadata_manager
         self.enrich = enrich and metadata_manager is not None
-        self._cancel = False
+        self._cancelled = False
 
     def cancel(self) -> None:
-        self._cancel = True
+        self._cancelled = True
 
     def run(self) -> None:  # worker thread — never touch widgets here
-        summary: dict = {"movies": 0, "episodes": 0, "music": 0, "errors": 0, "enriched": 0}
-        try:
-            files: list[Path] = []
-            for folder in self.folders:
-                files.extend(iter_media_files(Path(folder)))
-            total = len(files)
-            log.info("scan start: %s folders, %s files", len(self.folders), total)
-
-            for i, path in enumerate(files, 1):
-                if self._cancel:
-                    break
-                self.progressed.emit(i, total, str(path))
-                try:
-                    detected = detect(path)
-                    media_id = self.indexer.index(detected)
-                    summary[self._bucket(detected)] += 1
-                    self.indexed.emit({"id": media_id, "title": detected.title,
-                                       "kind": detected.kind.value, "path": str(path)})
-                    if self.enrich:
-                        if self.metadata.enrich(media_id, detected,
-                                                media_repo=self.indexer.media_repo):
-                            summary["enriched"] += 1
-                        time.sleep(0.15)  # be polite to providers
-                except Exception as exc:  # one bad file must not kill the scan
-                    summary["errors"] += 1
-                    log.warning("index failed for %s: %s", path, exc)
-            self.finished_summary.emit(summary)
-        except Exception as exc:  # pragma: no cover - defensive
-            log.exception("scan crashed")
-            self.failed.emit(str(exc))
-
-    @staticmethod
-    def _bucket(d: DetectedMedia) -> str:
-        return {"episode": "episodes", "movie": "movies", "music": "music"}.get(d.kind.value, "movies")
+        run_scan(
+            self.folders,
+            self.indexer,
+            metadata_manager=self.metadata,
+            enrich=self.enrich,
+            on_progress=lambda c, t, p: self.progressed.emit(c, t, p),
+            on_indexed=lambda d: self.indexed.emit(d),
+            on_finished=lambda s: self.finished_summary.emit(s),
+            on_failed=lambda msg: self.failed.emit(msg),
+            cancel=lambda: self._cancelled,
+        )

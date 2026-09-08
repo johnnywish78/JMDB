@@ -6,17 +6,26 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl, QTimer
-from PyQt6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
-
 log = logging.getLogger("jmdb.browser")
+
+# Qt is imported lazily so the pure helpers (URL normalization, engine probe)
+# remain importable headless (tests, diagnostics, non-Qt backends).
+try:  # pragma: no cover - depends on environment
+    from PyQt6.QtCore import QUrl, QTimer  # noqa: F401
+    from PyQt6.QtWidgets import (
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QPushButton,
+        QVBoxLayout,
+        QWidget,
+    )
+    _QT_OK = True
+    _QT_ERR = ""
+except Exception as _exc:  # pragma: no cover - headless
+    QUrl = QTimer = QHBoxLayout = QLabel = QLineEdit = QPushButton = QVBoxLayout = QWidget = None  # type: ignore
+    _QT_OK = False
+    _QT_ERR = str(_exc)
 
 # --------------------------------------------------------------------------- init
 _WEBENGINE_OK: bool | None = None
@@ -62,10 +71,15 @@ def _normalize(url: str) -> str:
     return url
 
 
-class BrowserWidget(QWidget):
+_Base = QWidget if _QT_OK else object
+
+
+class BrowserWidget(_Base):
     """Full-featured embedded browser. Falls back to external browser on error."""
 
     def __init__(self, bookmarks, parent=None):
+        if not _QT_OK:
+            raise RuntimeError(f"JMDB browser widget requires PyQt6: {_QT_ERR}")
         super().__init__(parent)
         self.bookmarks = bookmarks
         self._web = None
@@ -167,6 +181,7 @@ class BrowserWidget(QWidget):
 
     # ------------------------------------------------------------------ webview
     def _make_webview(self):
+        from PyQt6.QtCore import Qt
         from PyQt6.QtWebEngineWidgets import QWebEngineView
         view = QWebEngineView()
         view.setContextMenuPolicy(

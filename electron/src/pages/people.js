@@ -35,6 +35,7 @@ async function renderPeople() {
 }
 
 async function renderPerson(name) {
+  const body = document.getElementById('contentBody');
   try {
     const data = await API.get(`/api/people/${encodeURIComponent(name)}`);
     const items = data.items || [];

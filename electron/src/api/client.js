@@ -2,6 +2,20 @@
  * JMDB — API Client
  * Thin wrapper around window.jmdb.api for the renderer.
  */
+const API_BASE = 'http://127.0.0.1:18932';
+
+// Convert an absolute local path to a file:// URL safe for <video>/<img>.
+function fileUrl(p) {
+  if (!p) return null;
+  if (/^(https?|file|blob):/.test(p)) return p;
+  return 'file://' + encodeURI(String(p)).replace(/#/g, '%23');
+}
+
+// HTTP artwork serve URL (renderer can load over HTTP; no file:// needed).
+function artworkServeUrl(mediaId, kind, url) {
+  return `${API_BASE}/api/artwork/serve?media_id=${encodeURIComponent(mediaId || 0)}&kind=${encodeURIComponent(kind)}&url=${encodeURIComponent(url || '')}`;
+}
+
 const API = {
   base: '', // set by app state
 

@@ -13,6 +13,12 @@
     services: renderServices,
     browser: renderBrowser,
     settings: renderSettings,
+    favorites: renderFavorites,
+    watchlist: renderWatchlist,
+    history: renderHistory,
+    recommendations: renderRecommendations,
+    statistics: renderStatistics,
+    library: renderLibrary,
   };
 
   // Navigation
@@ -51,8 +57,11 @@
       if (q.length >= 2) {
         AppState.navigate('search');
         setTimeout(() => {
-          const inp = document.getElementById('searchInput');
-          if (inp) inp.value = q;
+          const inp = document.getElementById('pageSearchInput');
+          if (inp) {
+            inp.value = q;
+            if (typeof doSearch === 'function') doSearch(q);
+          }
         }, 100);
       }
     }
@@ -73,6 +82,11 @@
       renderPlayer({ payload: event.data.payload });
     }
   });
+
+  // Play requests forwarded by the Electron main process
+  if (window.jmdb && typeof jmdb.onPlay === 'function') {
+    jmdb.onPlay((payload) => renderPlayer({ payload }));
+  }
 
   // Navigation dispatcher
   AppState.navigate = function(page, params = {}) {

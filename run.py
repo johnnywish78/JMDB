@@ -60,11 +60,25 @@ def _run_backend() -> int:
     return serve_main()
 
 
+def _find_electron() -> str | None:
+    import shutil
+
+    candidates = [
+        ROOT / "node_modules" / ".bin" / "electron",
+        ROOT / "electron" / "node_modules" / ".bin" / "electron",
+        ROOT / "electron" / "node_modules" / "electron" / "dist" / "electron",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return shutil.which("electron")
+
+
 def _run_electron(dev: bool = False, theme: str | None = None) -> int:
     """Launch Electron with the project's main process."""
-    electron_path = ROOT / "node_modules" / ".bin" / "electron"
-    if not electron_path.exists():
-        print(f"[jmdb] Electron not found at {electron_path}", file=sys.stderr)
+    electron_bin = _find_electron()
+    if not electron_bin:
+        print("[jmdb] Electron not found.", file=sys.stderr)
         print("Run: npm install --prefix electron", file=sys.stderr)
         return 1
 
@@ -72,9 +86,14 @@ def _run_electron(dev: bool = False, theme: str | None = None) -> int:
     if theme:
         env["JMDB_THEME"] = theme
 
-    cmd = [str(electron_path), str(ROOT / "electron" / "main.js")]
+    cmd = [electron_bin, str(ROOT / "electron" / "main.js")]
     if dev:
         cmd.append("--dev")
+    # Headless / root environments require --no-sandbox; honor an explicit opt-out.
+    if os.environ.get("JMDB_SANDBOX") != "1" and (
+        not os.environ.get("DISPLAY") or hasattr(os, "geteuid") and os.geteuid() == 0
+    ):
+        cmd.append("--no-sandbox")
 
     print("[jmdb] Starting Electron frontend…", flush=True)
     result = subprocess.run(cmd, env=env, cwd=str(ROOT), check=False)
