@@ -653,9 +653,11 @@ def main() -> int:
               str({k: vf.get(k) for k in ("masked", "shown", "backendNote", "revealCalls")}))
     else:
         check("vault panel: add/mask/reveal flow through the real UI", False, str(vault_flow)[:90])
-    # restore the real (bridge-less) web context for the honest-notice check
-    js(view, "(() => { delete window.jmdb; location.hash = '#/browser'; return 1; })()", timeout_s=5)
-    time.sleep(0.8); pump()
+    # restore the real (bridge-less) web context for the honest-notice check.
+    # Bounce via #/home first: re-assigning the SAME hash fires no hashchange,
+    # so the page would keep the stale bridge-mounted DOM.
+    js(view, "(() => { delete window.jmdb; location.hash = '#/home'; return 1; })()", timeout_s=5)
+    time.sleep(0.6); pump()
 
     # ---------------------------------------------------------------- browser hub page (honest without Electron)
     note = goto("#/browser", "document.querySelector('.error-note') ? document.querySelector('.error-note').textContent.slice(0, 200) : ''")
