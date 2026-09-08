@@ -337,7 +337,7 @@ label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px
 }
 .service-card::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: var(--svc-accent, var(--accent)); }
 .service-card .svc-icon { font-size: 26px; color: var(--svc-accent, var(--accent)); display: flex; align-items: center; }
-.service-card .svc-icon svg.icon { width: 34px; height: 34px; }
+.service-card .svc-icon svg.icon { width: 42px; height: 42px; }
 .service-card h3 { font-size: 16px; }
 .service-card .desc { color: var(--text-dim); font-size: 12.5px; line-height: 1.5; }
 .service-card .actions { margin-top: auto; padding-top: 14px; display: flex; gap: 8px; }
@@ -515,6 +515,27 @@ video::cue { background: rgba(0, 0, 0, 0.65); font-size: 105%; }
   font-size: 13px;
 }
 .hub-banner .row { margin-left: auto; display: flex; gap: 8px; }
+/* JPNH-style download bar: pinned to the bottom of the Browser Hub */
+.hub-downloadbar {
+  position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 30;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  max-height: 240px; overflow: auto; padding: 8px 10px;
+}
+.dlbar-head { display: flex; align-items: center; margin-bottom: 4px; }
+.dlbar-title { font-size: 12px; font-weight: 700; color: var(--text-dim); letter-spacing: .03em; text-transform: uppercase; }
+.dlbar-head .nav-btn { margin-left: auto; width: 24px; height: 24px; }
+.dlbar-rows { display: flex; flex-direction: column; gap: 6px; }
+.dlbar-row { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; gap: 4px 12px; align-items: center; padding: 8px 10px; border-radius: 10px; background: var(--surface); font-size: 12.5px; }
+.dlbar-info { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.dlbar-info .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dlbar-info .meta { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+.dlbar-row .bar { grid-column: 1; height: 4px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+.dlbar-row .bar .fill { display: block; height: 100%; background: var(--accent); }
+.dlbar-row .bar .fill.paused { background: var(--text-faint); }
+.dlbar-row .actions { grid-row: 1 / span 2; display: flex; gap: 6px; }
+.dl-empty { color: var(--text-dim); font-size: 12.5px; padding: 6px 4px; }
+
 .hub-downloads {
   position: absolute; right: 14px; bottom: 14px; width: 360px; max-height: 55%; overflow-y: auto;
   background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px;
@@ -644,3 +665,10 @@ video::cue { background: rgba(0, 0, 0, 0.65); font-size: 105%; }
 .provider-error { color: var(--bad); }
 .provider-card a { color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--text-dim); }
 .provider-card a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* mpv-engine handoff backing (visible only if the video surface fails) */
+.player.mpv-mode { display: flex; align-items: center; justify-content: center; }
+.mpv-backing { text-align: center; color: var(--text-dim); }
+.mpv-backing h3 { color: var(--text); margin-bottom: 8px; }
+.mpv-backing p { margin: 4px 0; }
+.mpv-backing .hint { font-size: 12.5px; color: var(--text-faint); }

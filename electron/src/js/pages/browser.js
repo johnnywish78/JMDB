@@ -89,7 +89,7 @@ export default async function render(container, route) {
   let tabs = [];
   let activeTab = null;
   let findOpen = false;
-  let downloadsOpen = false;
+
   let historyOpen = false;
   let vaultOpen = false;
   let vaultEntries = [];
@@ -127,7 +127,18 @@ export default async function render(container, route) {
   });
 
   findBtn.addEventListener("click", () => toggleFind(true));
-  downloadsBtn.addEventListener("click", () => { downloadsOpen = !downloadsOpen; renderDownloads(); });
+  downloadsBtn.addEventListener("click", () => {
+    clearTimeout(downloadHideTimer);
+    if (downloadBar) {
+      // visible → close it (unpin too, so it doesn't fight the auto-show)
+      downloadsPinned = false;
+      downloadBar.remove();
+      downloadBar = null;
+    } else {
+      downloadsPinned = true;
+      renderDownloadBar();
+    }
+  });
   passwordsBtn.addEventListener("click", async () => {
     vaultOpen = !vaultOpen;
     if (vaultOpen) await loadVault();
@@ -251,28 +262,70 @@ export default async function render(container, route) {
   }
 
   /* ------------------------------------------------------------- downloads */
-  let downloadsPanel = null;
-  function renderDownloads() {
-    downloadsPanel?.remove();
-    downloadsPanel = null;
-    if (!downloadsOpen) return;
-    downloadsPanel = el("div", { class: "hub-downloads" }, el("h4", {}, `Downloads (${downloads.length})`));
-    for (const item of downloads.slice(0, 30)) {
-      const pct = item.total ? Math.round((item.received / item.total) * 100) : 0;
-      const row = el("div", { class: "dl-row" },
-        el("div", { class: "top" },
-          el("span", { class: "name", title: item.filename }, item.filename),
-          el("span", { class: "state" }, item.state)),
-        item.state === "progressing" ? el("div", { class: "bar" }, el("span", { style: { width: `${pct}%` } })) : null,
-        el("div", { class: "actions" },
-          item.state === "progressing" ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.pause(item.id) }, "Pause") : null,
-          item.state === "paused" ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.resume(item.id) }, "Resume") : null,
-          item.state === "progressing" ? el("button", { class: "btn small danger", onclick: () => window.jmdb.downloads.cancel(item.id) }, "Cancel") : null,
-          item.state === "completed" ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.openInFolder(item.id) }, "Show in folder") : null));
-      downloadsPanel.append(row);
+  // JPNH-style persistent download bar at the bottom of the hub: auto-shows
+  // while anything is downloading (real progress fills), auto-hides a few
+  // seconds after everything finishes unless the user pinned it open.
+  let downloadBar = null;
+  let downloadsPinned = false;
+  let downloadHideTimer = null;
+
+  function downloadSizeText(item) {
+    const mb = (n) => `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    if (item.total) return `${mb(item.received)} / ${mb(item.total)}`;
+    return item.received ? mb(item.received) : "";
+  }
+
+  function renderDownloadBar() {
+    downloadBar?.remove();
+    downloadBar = null;
+
+    const active = downloads.filter((item) => item.state === "progressing" || item.state === "paused" || item.state === "interrupted");
+
+    const visible = downloadsPinned || active.length > 0;
+    if (!visible) return;
+
+    downloadBar = el("div", { class: "hub-downloadbar" });
+    const head = el("div", { class: "dlbar-head" },
+      el("span", { class: "dlbar-title" },
+        active.length ? `Downloading — ${active.length} file${active.length > 1 ? "s" : ""}` : `Downloads (${downloads.length})`));
+    const closeBtn = el("button", { class: "nav-btn small", title: "Hide the download bar" }, "×");
+    closeBtn.addEventListener("click", () => { downloadsPinned = false; renderDownloadBar(); });
+    head.append(closeBtn);
+    downloadBar.append(head);
+
+    const rowsWrap = el("div", { class: "dlbar-rows" });
+    const shown = downloads.slice(0, 12);
+    if (!shown.length) {
+      rowsWrap.append(el("div", { class: "dl-empty" }, "No downloads yet."));
     }
-    if (!downloads.length) downloadsPanel.append(el("div", { style: { color: "var(--text-dim)", fontSize: "12.5px" } }, "No downloads yet."));
-    content.append(downloadsPanel);
+    for (const item of shown) {
+      const pct = item.total ? Math.min(100, Math.round((item.received / item.total) * 100)) : 0;
+      const stateLabel = item.state === "progressing" ? (item.paused ? "Paused" : item.total ? `${pct}%` : "Downloading…")
+        : item.state === "paused" ? "Paused"
+        : item.state === "interrupted" ? "Interrupted"
+        : item.state === "completed" ? "Completed" : "Cancelled";
+      const row = el("div", { class: "dlbar-row" },
+        el("div", { class: "dlbar-info" },
+          el("span", { class: "name", title: item.filename }, item.filename),
+          el("span", { class: "meta" }, `${stateLabel}${downloadSizeText(item) ? ` · ${downloadSizeText(item)}` : ""}`)),
+        (item.state === "progressing" || item.state === "paused" || item.state === "interrupted")
+          ? el("div", { class: "bar" }, el("span", { class: item.state === "progressing" && !item.paused ? "fill" : "fill paused", style: { width: `${pct}%` } })) : null,
+        el("div", { class: "actions" },
+          item.state === "progressing" && !item.paused ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.pause(item.id) }, "Pause") : null,
+          (item.state === "paused" || (item.state === "progressing" && item.paused)) ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.resume(item.id) }, "Resume") : null,
+          item.state === "interrupted" ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.resume(item.id) }, "Retry") : null,
+          (item.state === "progressing" || item.state === "paused" || item.state === "interrupted") ? el("button", { class: "btn small danger", onclick: () => window.jmdb.downloads.cancel(item.id) }, "Cancel") : null,
+          item.state === "completed" ? el("button", { class: "btn small", onclick: () => window.jmdb.downloads.openInFolder(item.id) }, "Show in folder") : null));
+      rowsWrap.append(row);
+    }
+    downloadBar.append(rowsWrap);
+    root.append(downloadBar);
+
+    clearTimeout(downloadHideTimer);
+    if (!active.length && !downloadsPinned) {
+      // everything finished and nobody pinned the bar — quietly slide away
+      downloadHideTimer = setTimeout(() => { downloadBar?.remove(); downloadBar = null; }, 4000);
+    }
   }
 
   /* ------------------------------------------------------------- password vault */
@@ -644,7 +697,7 @@ export default async function render(container, route) {
   offs.push(window.jmdb.on("downloads:updated", (list) => {
     downloads = list;
     downloadsBtn.style.color = downloads.some((item) => item.state === "progressing") ? "var(--accent)" : "";
-    if (downloadsOpen) renderDownloads();
+    renderDownloadBar();
   }));
 
   // initial state: list tabs; if none, restore-or-create the first tab; activate the first
@@ -675,6 +728,7 @@ export default async function render(container, route) {
       observer.disconnect();
       document.removeEventListener("keydown", keyHandler);
       for (const off of offs) off();
+      clearTimeout(downloadHideTimer);
       hideBanner();
       closeMenu();
       hidePermissionDialog();
