@@ -157,6 +157,20 @@ def playback_start(request: Request, body: dict) -> dict:
     suffix = path.suffix.lower()
     mime = MIME_OVERRIDES.get(suffix) or mimetypes.guess_type(str(path))[0] or "application/octet-stream"
 
+    # probe facts (ffprobe-derived, best-effort): let the player show the real
+    # codec and decide honestly whether the embedded Chromium renderer can
+    # decode it (e.g. HEVC needs hardware decode on this machine or an
+    # external player) instead of failing with a silent black screen.
+    probe = getattr(media_file, "probe", None) if media_file else None
+    probe = probe or {}
+    audio_tracks = []
+    for track in (probe.get("audio_tracks") or [])[:8]:
+        audio_tracks.append({
+            "language": track.get("language") or "",
+            "codec": track.get("codec") or "",
+            "channels": track.get("channels") or 0,
+        })
+
     return {
         "session_id": session_id,
         "media": {
@@ -170,6 +184,10 @@ def playback_start(request: Request, body: dict) -> dict:
                 "size": (media_file.size_bytes if media_file else 0),
                 "mime": mime,
                 "exists": path.exists(),
+                "video_codec": probe.get("video_codec") or "",
+                "width": probe.get("width") or 0,
+                "height": probe.get("height") or 0,
+                "audio_tracks": audio_tracks,
             },
             "artwork_path": playable.artwork_path,
         },

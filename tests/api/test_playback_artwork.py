@@ -96,3 +96,66 @@ def test_movie_queue_entry_has_artwork(seeded):
     assert response.status_code == 200
     entry = response.json()["queue"][0]
     assert entry.get("artwork_path"), entry
+
+
+def test_playback_start_surfaces_probe_codec_facts(seeded):
+    """/api/playback/start must tell the player the REAL codec facts (from
+    ffprobe) so it can decide honestly whether the embedded Chromium can
+    decode the file (e.g. HEVC without hardware decode) instead of showing
+    a silent black screen."""
+    import shutil as _shutil
+
+    from app.library.probe import ProbeTools
+
+    ctx, keys, client = seeded
+    tools = ProbeTools()
+    if not tools.available:
+        pytest.skip("no ffprobe/ffmpeg available for probing")
+
+    movie = ctx.services.movies.playable(keys["movie_id"])
+    assert movie is not None
+
+    # swap in a REAL 10-bit HEVC file (the user-reported codec class) and
+    # probe it for real — no fabricated metadata
+    hevc = Path("/tmp/jmdb-rt/test-hevc10.mkv")
+    if not hevc.exists():
+        pytest.skip("HEVC sample not generated in this environment")
+    _shutil.copy2(hevc, movie.path)
+    result = tools.probe(movie.path)
+    assert result is not None and result.video_codec.lower().startswith("hevc"), (
+        f"probe result: {result.to_dict() if result else None}")
+    ctx.services.repos.files.set_probe(movie.media_file_id, result.to_dict())
+
+    response = client.post(
+        "/api/playback/start",
+        json={"media_type": "movie", "media_id": keys["movie_id"]},
+    )
+    assert response.status_code == 200, response.text
+    info = response.json()["media"]["file"]
+    assert info["video_codec"].lower().startswith("hevc"), info
+    assert info["width"] > 0 and info["height"] > 0, info
+    assert isinstance(info["audio_tracks"], list), info
+
+
+def test_playback_external_launches_configured_player(seeded, monkeypatch):
+    """The external-player handoff must really launch a process with the
+    media path (tested with /bin/true as the configured player — a real
+    subprocess spawn, no fake success)."""
+    import shutil as _shutil
+    import stat as _stat
+
+    ctx, keys, client = seeded
+    true_bin = _shutil.which("true")
+    if not true_bin:
+        pytest.skip("no /bin/true on this platform")
+
+    ctx.services.settings.set("external_player_path", true_bin)
+    try:
+        response = client.post(
+            "/api/playback/external",
+            json={"media_type": "movie", "media_id": keys["movie_id"]},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json().get("launched") is True
+    finally:
+        ctx.services.settings.set("external_player_path", "")

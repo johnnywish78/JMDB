@@ -107,6 +107,19 @@ def _run_backend(port: int | None = None, log_level: str = "warning") -> tuple[i
     from app.api.auth import generate_token
     from app.api.server import create_app
 
+    # The UI's live updates (scan progress pill/toasts, library refresh) ride
+    # a WebSocket. Without the websockets package uvicorn serves HTTP only —
+    # say so clearly instead of letting the app look frozen mid-scan (the UI
+    # also has a REST polling fallback, but events are the primary path).
+    try:
+        import websockets  # noqa: F401
+    except ImportError:
+        print(
+            "JMDB: the 'websockets' package is missing — live updates will fall back "
+            "to periodic polling. Fix with: pip install -r requirements.txt",
+            file=sys.stderr,
+        )
+
     port = port or _find_free_port()
     token = generate_token()
     app = create_app(token=token)
