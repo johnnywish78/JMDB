@@ -6,7 +6,7 @@
  * browser handling, and the strict preload bridge. The renderer is plain
  * same-origin web content served by the backend — it never sees Node.
  */
-const { app, BrowserWindow, dialog, ipcMain, session, nativeTheme } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, safeStorage, session } = require("electron");
 const path = require("node:path");
 const { URL } = require("node:url");
 
@@ -16,6 +16,11 @@ const { DownloadManager } = require("./main/downloads");
 const { PermissionManager } = require("./main/permissions");
 const { buildContextMenu } = require("./main/context-menu");
 const { ExternalBrowser } = require("./main/external");
+const { PasswordVault } = require("./main/passwords");
+const { registerIpc } = require("./main/ipc");
+
+/** Matches the backend's browser_default_zoom default (percent). */
+const DEFAULT_ZOOM_PERCENT = 100;
 
 app.setName("JMDB");
 
@@ -31,6 +36,8 @@ let hub = null;
 let downloads = null;
 /** @type {PermissionManager} */
 let permissions = null;
+/** @type {PasswordVault} */
+let vault = null;
 let quitting = false;
 
 // ----------------------------------------------------------------------------
@@ -150,9 +157,27 @@ async function boot() {
   hardenSession(session.fromPartition("persist:jmdb"));
   permissions = new PermissionManager(mainWindow);
   downloads = new DownloadManager(mainWindow);
+  vault = new PasswordVault({
+    app, safeStorage, clipboard,
+    log: (message) => console.log(message),
+  });
+  // seed the Hub with the saved browser settings so even session-restored
+  // tabs honor them (JavaScript is fixed per WebContentsView at creation)
+  let browserSettings = {};
+  try {
+    const response = await fetch(new URL("/api/settings", info.url), {
+      headers: { Authorization: `Bearer ${info.token}` },
+    });
+    if (response.ok) browserSettings = (await response.json()).values || {};
+  } catch {
+    /* defaults are fine; the renderer pushes settings on hub mount anyway */
+  }
   hub = new Hub({
     window: () => mainWindow,
     onExternal: (url) => ExternalBrowser.open(url),
+    cookiesEnabled: browserSettings.browser_allow_cookies !== false,
+    javascriptEnabled: browserSettings.browser_enable_javascript !== false,
+    defaultZoom: Number(browserSettings.browser_default_zoom) || DEFAULT_ZOOM_PERCENT,
   });
 
   // hub-tab permission requests surface as the in-page JPNH-style dialog
@@ -179,79 +204,21 @@ async function boot() {
   }
 }
 
-// ----------------------------------------------------------------------------
-// IPC surface (everything the renderer may ask the OS for)
-// ----------------------------------------------------------------------------
-function registerIpc() {
-  ipcMain.handle("app:info", () => ({
-    version: app.getVersion(),
-    electron: process.versions.electron,
-    chrome: process.versions.chrome,
-    node: process.versions.node,
-    platform: process.platform,
-    packaged: app.isPackaged,
-    backendUrl: backend ? backend.url : null,
-    externalBrowsers: ExternalBrowser.list(),
-  }));
-
-  ipcMain.handle("open-external", (_event, url) => {
-    if (typeof url !== "string") return { ok: false };
-    if (!/^https?:\/\//i.test(url)) return { ok: false };
-    return ExternalBrowser.open(url);
-  });
-
-  // native folder picker for "Add location" (cancel → null, never a fake path)
-  ipcMain.handle("dialog:pickFolder", async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: "Choose a media folder",
-      properties: ["openDirectory", "createDirectory"],
-    });
-    if (result.canceled || !result.filePaths.length) return null;
-    return result.filePaths[0];
-  });
-
-  ipcMain.handle("hub:createTab", (_e, url) => hub.createTab(url));
-  ipcMain.handle("hub:closeTab", (_e, id) => hub.closeTab(id));
-  ipcMain.handle("hub:activateTab", (_e, id) => hub.activateTab(id));
-  ipcMain.handle("hub:navigate", (_e, url) => hub.navigate(url));
-  ipcMain.handle("hub:back", () => hub.back());
-  ipcMain.handle("hub:forward", () => hub.forward());
-  ipcMain.handle("hub:reload", () => hub.reload());
-  ipcMain.handle("hub:stop", () => hub.stop());
-  ipcMain.handle("hub:home", () => hub.home());
-  ipcMain.handle("hub:find", (_e, text, opts) => hub.find(text, opts || {}));
-  ipcMain.handle("hub:clearFind", () => hub.clearFind());
-  ipcMain.handle("hub:zoom", (_e, direction) => hub.zoom(direction));
-  ipcMain.handle("hub:reopenTab", () => hub.reopenTab());
-  ipcMain.handle("hub:tabs", () => hub.tabSummaries());
-  ipcMain.handle("hub:setBounds", (_e, rect) => hub.setBounds(rect));
-  ipcMain.handle("hub:setVisible", (_e, visible) => hub.setVisible(visible));
-  ipcMain.handle("hub:history", (_e, query) => hub.recentHistory(query));
-  ipcMain.handle("hub:clearHistory", () => hub.clearHistory());
-  ipcMain.handle("hub:togglePin", (_e, id) => hub.togglePin(id));
-  ipcMain.handle("hub:favorites", () => hub.favoritesList());
-  ipcMain.handle("hub:switchTab", (_e, direction) => hub.switchTab(direction));
-  ipcMain.handle("hub:print", () => hub.print());
-  ipcMain.handle("hub:exportPdf", () => hub.exportPdf());
-  ipcMain.handle("hub:clearData", (_e, types) => hub.clearData(types));
-  ipcMain.handle("hub:setDefaultZoom", (_e, percent) => hub.setDefaultZoom(percent));
-
-  ipcMain.handle("downloads:list", () => downloads.list());
-  ipcMain.handle("downloads:cancel", (_e, id) => downloads.cancel(id));
-  ipcMain.handle("downloads:pause", (_e, id) => downloads.pause(id));
-  ipcMain.handle("downloads:resume", (_e, id) => downloads.resume(id));
-  ipcMain.handle("downloads:openInFolder", (_e, id) => downloads.openInFolder(id));
-
-  ipcMain.handle("permissions:respond", (_e, payload) =>
-    permissions.respondFromRenderer(payload)
-  );
-}
 
 // ----------------------------------------------------------------------------
 // lifecycle
 // ----------------------------------------------------------------------------
 app.whenReady().then(() => {
-  registerIpc();
+  // the shared registration in main/ipc.js maps every preload bridge call to
+  // this process's real manager instances
+  registerIpc({
+    hub,
+    downloads,
+    permissions,
+    backend,
+    vault,
+    getWindow: () => mainWindow,
+  });
   nativeTheme.on("updated", () => {
     if (mainWindow) {
       mainWindow.webContents.send("native-theme-changed", {

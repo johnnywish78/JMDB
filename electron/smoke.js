@@ -13,6 +13,15 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("node:path");
 
+// The renderer pings smoke:renderer-ready (via the env-gated preload surface)
+// after its first real page render — the honest "renderer booted" signal.
+process.env.JMDB_SMOKE = "1";
+
+const { Hub } = require("./main/hub");
+const { DownloadManager } = require("./main/downloads");
+const { PermissionManager } = require("./main/permissions");
+const { registerIpc } = require("./main/ipc");
+
 const results = [];
 function check(name, ok, detail = "") {
   results.push({ name, ok, detail });
@@ -54,6 +63,23 @@ app.whenReady().then(async () => {
       finish();
     };
 
+    // Real manager instances and the shared IPC registration from main/ipc.js:
+    // the renderer gets the identical bridge surface as under main.js. This is
+    // what makes "hub:setVisible: No handler registered" impossible here.
+    const permissions = new PermissionManager(mainWindow);
+    const downloads = new DownloadManager(mainWindow);
+    const hubInstance = new Hub({
+      window: () => mainWindow,
+      onExternal: () => ({ ok: true }),
+    });
+    registerIpc({
+      hub: hubInstance,
+      downloads,
+      permissions,
+      backend: proc,
+      getWindow: () => mainWindow,
+    });
+
     ipcMain.handleOnce("smoke:renderer-ready", async () => {
       check("renderer booted", true);
       try {
@@ -92,11 +118,7 @@ app.whenReady().then(async () => {
         check("API home reachable from renderer", typeof home === "number" && home > 4, `sections=${home}`);
 
         // 6. hub: create a tab over IPC, list it, hide it (WebContentsView round-trip)
-        const hub = require("./main/hub");
-        const hubInstance = new hub.Hub({
-          window: () => mainWindow,
-          onExternal: () => ({ ok: true }),
-        });
+        // (hubInstance is the one registered in the IPC surface above)
         const id = await hubInstance.createTab("https://example.com/", { activate: true });
         const tabs = hubInstance.tabSummaries();
         check("hub created a tab", tabs.length === 1 && tabs[0].id === id);

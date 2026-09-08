@@ -22,7 +22,7 @@ const FAVORITES_FILE = () => path.join(app.getPath("userData"), "hub-favorites.j
 const DEFAULT_ZOOM = 1.0;
 
 class Hub {
-  constructor({ window, onExternal }) {
+  constructor({ window, onExternal, cookiesEnabled = true, javascriptEnabled = true, defaultZoom = DEFAULT_ZOOM }) {
     this.getWindow = window;
     this.onExternal = onExternal;
     this.tabs = new Map(); // id -> { id, view, url, title, favicon, loading, zoom, pinned }
@@ -33,7 +33,15 @@ class Hub {
     this.nextId = 1;
     this.history = this.loadHistory();
     this.favorites = this.loadFavorites();
-    this.defaultZoom = DEFAULT_ZOOM; // renderer pushes the profile setting here
+    // Browser settings: main seeds them from the saved profile (so even the
+    // tabs restored at startup honor them); the renderer can push changes
+    // live afterwards. Cookie blocking applies to the whole hub session
+    // immediately; the JavaScript flag applies to newly created tabs
+    // (Chromium webPreferences are fixed per WebContentsView).
+    this.defaultZoom = defaultZoom;
+    this.cookiesEnabled = cookiesEnabled !== false;
+    this.javascriptEnabled = javascriptEnabled !== false;
+    this.applyCookiePolicy();
     this.searchEngines = {
       duckduckgo: "https://duckduckgo.com/?q=",
       google: "https://www.google.com/search?q=",
@@ -177,6 +185,7 @@ class Hub {
         nodeIntegration: false,
         sandbox: true,
         spellcheck: false,
+        javascript: this.javascriptEnabled !== false,
       },
     });
     const tab = {
@@ -493,6 +502,40 @@ class Hub {
       return { ok: false, cleared, error: String(error?.message || error) };
     }
     return { ok: true, cleared };
+  }
+
+  /** Live cookie policy for the whole hub session. Blocking strips Cookie
+   * request headers and Set-Cookie response headers — sites stop receiving
+   * or storing cookies immediately (existing stored cookies stay until the
+   * user clears browsing data, matching what browsers do). */
+  setCookiesEnabled(enabled) {
+    this.cookiesEnabled = enabled !== false;
+    this.applyCookiePolicy();
+    return { ok: true, cookiesEnabled: this.cookiesEnabled };
+  }
+
+  setJavaScriptEnabled(enabled) {
+    this.javascriptEnabled = enabled !== false;
+    return { ok: true, javascriptEnabled: this.javascriptEnabled, appliesTo: "new-tabs" };
+  }
+
+  applyCookiePolicy() {
+    const strip = (headers, name) => {
+      const cleaned = { ...headers };
+      for (const key of Object.keys(cleaned)) {
+        if (key.toLowerCase() === name) delete cleaned[key];
+      }
+      return cleaned;
+    };
+    const hubSession = this.session();
+    hubSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      if (this.cookiesEnabled) return callback({ requestHeaders: details.requestHeaders });
+      callback({ requestHeaders: strip(details.requestHeaders, "cookie") });
+    });
+    hubSession.webRequest.onHeadersReceived((details, callback) => {
+      if (this.cookiesEnabled) return callback({ responseHeaders: details.responseHeaders });
+      callback({ responseHeaders: strip(details.responseHeaders, "set-cookie") });
+    });
   }
 
   setDefaultZoom(percent) {
