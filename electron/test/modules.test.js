@@ -55,10 +55,13 @@ test("main.js and preload.js parse (full app entry points)", () => {
   }
 });
 
-test("main.js registers the folder picker IPC channel", () => {
+test("the folder picker IPC channel is registered (shared main/ipc.js)", () => {
   const fs = require("node:fs");
-  const source = fs.readFileSync(pathJoin("main.js"), "utf-8");
-  assert.match(source, /dialog:pickFolder/);
+  // the surface lives in the shared module both main.js and smoke.js register
+  const ipcSource = fs.readFileSync(pathJoin("main/ipc.js"), "utf-8");
+  assert.match(ipcSource, /dialog:pickFolder/);
+  const mainSource = fs.readFileSync(pathJoin("main.js"), "utf-8");
+  assert.match(mainSource, /registerIpc\(\{/, "main.js must call the shared registerIpc");
 });
 
 function pathJoin(file) {

@@ -40,10 +40,21 @@ test("open() falls back to the system default browser", () => {
 });
 
 test("open(url, preferChrome) still opens something when no Chrome exists", () => {
-  opened.length = 0;
-  const result = ExternalBrowser.open("https://example.com/x", { preferChrome: true });
-  assert.equal(result.ok, true);
-  assert.ok(opened.includes("https://example.com/x"));
+  // Force the no-Chrome condition this test is ABOUT: on machines that DO have
+  // a browser on PATH, open() would spawn it directly (never reaching the
+  // system-default fallback this check asserts). An empty PATH makes the
+  // scenario deterministic everywhere without weakening the assertion.
+  const previous = process.env.PATH;
+  process.env.PATH = "";
+  try {
+    opened.length = 0;
+    const result = ExternalBrowser.open("https://example.com/x", { preferChrome: true });
+    assert.equal(result.ok, true);
+    assert.equal(result.browser, "system-default", `expected fallback, got ${JSON.stringify(result)}`);
+    assert.ok(opened.includes("https://example.com/x"), `shell.openExternal calls: ${JSON.stringify(opened)}`);
+  } finally {
+    process.env.PATH = previous;
+  }
 });
 
 test("list() discovers an executable browser on a fake PATH", () => {

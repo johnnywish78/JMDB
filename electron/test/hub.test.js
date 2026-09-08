@@ -67,7 +67,7 @@ const stubElectron = {
     showSaveDialog: async () => saveDialogResult,
   },
   WebContentsView: class {
-    constructor() { this.__view = new FakeView(); }
+    constructor(webPreferences) { this.__view = new FakeView(); this.__prefs = webPreferences || {}; }
     get webContents() { return this.__view.webContents; }
     setBounds(b) { this.__view.setBounds(b); }
     setVisible(v) { this.__view.setVisible(v); }
@@ -78,6 +78,10 @@ const stubElectron = {
       setPermissionRequestHandler: () => {},
       clearCache: async () => { sessionActions.push("clearCache"); },
       clearStorageData: async (options) => { sessionActions.push(["clearStorageData", options]); },
+      webRequest: {
+        onBeforeSendHeaders: (listener) => { stubElectron.__webRequestListeners = stubElectron.__webRequestListeners || {}; stubElectron.__webRequestListeners.onBeforeSendHeaders = listener; },
+        onHeadersReceived: (listener) => { stubElectron.__webRequestListeners = stubElectron.__webRequestListeners || {}; stubElectron.__webRequestListeners.onHeadersReceived = listener; },
+      },
     }),
   },
 };
@@ -353,4 +357,54 @@ test("isTabWebContents recognises hub tabs and rejects everything else", () => {
   assert.equal(hub.isTabWebContents(wc), true);
   assert.equal(hub.isTabWebContents({ id: 999999 }), false);
   assert.equal(hub.isTabWebContents(null), false);
+});
+
+
+// ---------------------------------------------------------------- browser policy settings
+test("cookie blocking strips Cookie/Set-Cookie headers live; allow passes through", () => {
+  const hub = freshHub();
+  const listeners = stubElectron.__webRequestListeners;
+  assert.ok(listeners && listeners.onBeforeSendHeaders, "policy listeners must be registered");
+
+  // default: cookies allowed → headers untouched
+  let out = {};
+  listeners.onBeforeSendHeaders({ requestHeaders: { Cookie: "a=b", Accept: "*/*" } }, (res) => { out = res; });
+  assert.equal(out.requestHeaders.Cookie, "a=b");
+
+  hub.setCookiesEnabled(false);
+  listeners.onBeforeSendHeaders({ requestHeaders: { Cookie: "a=b", Accept: "*/*" } }, (res) => { out = res; });
+  assert.equal(out.requestHeaders.Cookie, undefined, "Cookie request header must be stripped");
+  assert.equal(out.requestHeaders.Accept, "*/*", "other headers must survive");
+
+  let resp = {};
+  listeners.onHeadersReceived({ responseHeaders: { "set-cookie": ["x=y"], "content-type": ["text/html"] } }, (res) => { resp = res; });
+  assert.equal(resp.responseHeaders["set-cookie"], undefined, "Set-Cookie must be stripped");
+  assert.equal(resp.responseHeaders["content-type"][0], "text/html");
+
+  // re-enable passes headers through again
+  hub.setCookiesEnabled(true);
+  listeners.onBeforeSendHeaders({ requestHeaders: { Cookie: "a=b" } }, (res) => { out = res; });
+  assert.equal(out.requestHeaders.Cookie, "a=b");
+});
+
+test("javascript flag applies to newly created tabs", () => {
+  const hub = freshHub();
+  hub.setJavaScriptEnabled(false);
+  const id = hub.createTab("https://example.com/");
+  const view = hub.tabs.get(id).view;
+  assert.equal(view.__prefs.webPreferences.javascript, false, "new tabs must honor the JS flag");
+  assert.equal(hub.setJavaScriptEnabled(true).javascriptEnabled, true);
+  const id2 = hub.createTab("https://example.org/");
+  assert.equal(hub.tabs.get(id2).view.__prefs.webPreferences.javascript, true);
+});
+
+test("hub constructor seeds policy flags (settings restored at startup)", () => {
+  const hub = new Hub({ window: () => fakeWindow, onExternal: () => {},
+    cookiesEnabled: false, javascriptEnabled: false, defaultZoom: 150 });
+  assert.equal(hub.cookiesEnabled, false);
+  assert.equal(hub.javascriptEnabled, false);
+  assert.equal(hub.defaultZoom, 150);
+  const id = hub.createTab("https://example.com/");
+  assert.equal(hub.tabs.get(id).view.__prefs.webPreferences.javascript, false);
+  assert.equal(hub.tabs.get(id).zoom, 150);
 });
