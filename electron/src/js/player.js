@@ -6,7 +6,7 @@
  * keyboard shortcuts, auto-hiding chrome. Progress is reported to the Python
  * backend, which owns resume/watched/next-episode decisions.
  */
-import { api } from "./api.js";
+import { api, artUrl } from "./api.js";
 import { el, formatClock, icon, toast } from "./ui.js";
 import { navigate } from "./router.js";
 
@@ -26,6 +26,14 @@ export async function openPlayer({ mediaType, mediaId, context = null, startAt =
   active = new Player(data, { requestedStart: startAt });
   active.open();
   return active;
+}
+
+/** Small artwork thumbnail that hides itself when the image fails to load
+ * (CSP forbids inline onerror handlers, so we use a real listener). */
+function posterThumb(path, cls) {
+  const img = el("img", { class: cls, alt: "", loading: "lazy", src: artUrl(path, "poster") });
+  img.addEventListener("error", () => { img.style.display = "none"; });
+  return img;
 }
 
 class Player {
@@ -104,8 +112,8 @@ class Player {
     settingsButton.addEventListener("click", () => this.toggleSettings());
 
     this.top = el("div", { class: "player-top" },
-      el("button", { class: "pbtn", title: "Back (Esc)", onclick: () => this.close() },
-        `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5l-7 7 7 7"/></svg>`),
+      el("button", { class: "pbtn", title: "Back (Esc)", "aria-label": "Back", onclick: () => this.close() }, icon("chevron-left")),
+      this.media.artwork_path ? posterThumb(this.media.artwork_path, "artwork") : null,
       el("div", {},
         el("div", { class: "title" }, this.media.title || "Untitled"),
         el("div", { class: "subtitle" }, this.media.subtitle || this.media.file?.name || "")),
@@ -378,6 +386,7 @@ class Player {
         class: `queue-item ${entry.current ? "current" : ""}`,
         onclick: () => this.jumpTo(entry),
       },
+        entry.artwork_path ? posterThumb(entry.artwork_path, "thumb") : null,
         el("span", { style: { flex: "1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, entry.title),
         entry.subtitle ? el("span", { style: { opacity: 0.6, fontSize: "11.5px" } }, entry.subtitle) : null));
     }

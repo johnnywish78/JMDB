@@ -22,6 +22,13 @@ export default async function render(container, route) {
   if (store.settings.browser_default_zoom) {
     hub.setDefaultZoom(store.settings.browser_default_zoom).catch(() => {});
   }
+  // live browser-policy settings (Settings page persists them; the hub applies)
+  if (typeof store.settings.browser_allow_cookies !== "undefined") {
+    hub.setCookiesEnabled(store.settings.browser_allow_cookies !== false).catch(() => {});
+  }
+  if (typeof store.settings.browser_enable_javascript !== "undefined") {
+    hub.setJavaScriptEnabled(store.settings.browser_enable_javascript !== false).catch(() => {});
+  }
 
   const engineKey = store.settings.browser_search_engine || "duckduckgo";
   const engine = SEARCH_ENGINES[engineKey] || SEARCH_ENGINES.duckduckgo;
@@ -63,10 +70,11 @@ export default async function render(container, route) {
   const zoomInBtn = toolbarButton("Zoom in (Ctrl+=)", "M12 5v14M5 12h14");
   const pinBtn = toolbarButton("Pin this tab as a favorite", "M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z");
   const menuBtn = toolbarButton("Browser menu", "M4 6h16M4 12h16M4 18h16");
+  const passwordsBtn = toolbarButton("Password vault", "M6 11h12v9H6zM9 11V8a3 3 0 0 1 6 0v3");
 
   toolbar.append(backBtn, forwardBtn, reloadBtn, homeBtn, addressBar,
     zoomOutBtn, zoomInBtn, zoomBadge,
-    findBtn, downloadsBtn, historyBtn, bookmarkBtn, pinBtn, externalBtn, menuBtn);
+    findBtn, downloadsBtn, historyBtn, bookmarkBtn, pinBtn, externalBtn, passwordsBtn, menuBtn);
 
   const underlay = el("div", { class: "underlay" },
     el("div", {},
@@ -83,6 +91,9 @@ export default async function render(container, route) {
   let findOpen = false;
   let downloadsOpen = false;
   let historyOpen = false;
+  let vaultOpen = false;
+  let vaultEntries = [];
+  let vaultBackendName = "";
   let downloads = [];
   let findCount = { activeMatchOrdinal: 0, matches: 0 };
 
@@ -117,6 +128,11 @@ export default async function render(container, route) {
 
   findBtn.addEventListener("click", () => toggleFind(true));
   downloadsBtn.addEventListener("click", () => { downloadsOpen = !downloadsOpen; renderDownloads(); });
+  passwordsBtn.addEventListener("click", async () => {
+    vaultOpen = !vaultOpen;
+    if (vaultOpen) await loadVault();
+    renderVault();
+  });
   historyBtn.addEventListener("click", async () => {
     historyOpen = !historyOpen;
     if (historyOpen) await renderHistory();
@@ -257,6 +273,151 @@ export default async function render(container, route) {
     }
     if (!downloads.length) downloadsPanel.append(el("div", { style: { color: "var(--text-dim)", fontSize: "12.5px" } }, "No downloads yet."));
     content.append(downloadsPanel);
+  }
+
+  /* ------------------------------------------------------------- password vault */
+  let vaultPanel = null;
+  let vaultQuery = "";
+
+  async function loadVault() {
+    if (!window.jmdb?.passwords) return;
+    const result = await window.jmdb.passwords.list().catch(() => null);
+    if (result && result.ok) {
+      vaultEntries = result.entries || [];
+      vaultBackendName = result.backend || "";
+    }
+  }
+
+  function renderVault() {
+    vaultPanel?.remove();
+    vaultPanel = null;
+    if (!vaultOpen) return;
+
+    if (!window.jmdb?.passwords) {
+      vaultPanel = el("div", { class: "hub-vault" },
+        el("h4", {}, "Password vault"),
+        el("p", { style: { color: "var(--text-dim)", fontSize: "12.5px" } },
+          "The vault is only available inside the JMDB desktop app."));
+      content.append(vaultPanel);
+      return;
+    }
+
+    vaultPanel = el("div", { class: "hub-vault" });
+    vaultPanel.append(el("h4", {}, `Password vault (${vaultEntries.length})`));
+    vaultPanel.append(el("p", { class: "vault-backend" },
+      vaultBackendName === "safeStorage"
+        ? "Encrypted with your operating system's secure storage. No autofill — copy credentials when you need them."
+        : "Encrypted with a local key file (OS secure storage unavailable). No autofill — copy credentials when you need them."));
+
+    // search
+    const rowsWrap = el("div", { class: "vault-rows" });
+    const search = el("input", { class: "input", type: "text", placeholder: "Search domain or username…", value: vaultQuery,
+      style: { width: "100%", marginBottom: "10px" } });
+    search.addEventListener("input", () => { vaultQuery = search.value; renderVaultRows(); });
+    vaultPanel.append(search);
+    vaultPanel.append(rowsWrap);
+
+    // add form
+    const fDomain = el("input", { class: "input", type: "text", placeholder: "example.com" });
+    const fUser = el("input", { class: "input", type: "text", placeholder: "username" });
+    const fPass = el("input", { class: "input", type: "password", placeholder: "password" });
+    const fNotes = el("input", { class: "input", type: "text", placeholder: "note (optional)" });
+    const addBtn = el("button", { class: "btn small primary" }, "Add");
+    addBtn.addEventListener("click", async () => {
+      const result = await window.jmdb.passwords.add({
+        domain: fDomain.value, username: fUser.value, password: fPass.value, notes: fNotes.value,
+      }).catch(() => null);
+      if (result && result.ok) {
+        fDomain.value = fUser.value = fPass.value = fNotes.value = "";
+        await loadVault();
+        renderVaultRows();
+        toast("Saved to the vault", "success");
+      } else {
+        toast(`Couldn't save: ${(result && result.error) || "vault error"}`, "error");
+      }
+    });
+    vaultPanel.append(el("div", { class: "vault-add" },
+      fDomain, fUser, fPass, fNotes, addBtn));
+
+    function renderVaultRows() {
+      clear(rowsWrap);
+      const query = vaultQuery.trim().toLowerCase();
+      const rows = vaultEntries.filter((entry) =>
+        !query || entry.domain.toLowerCase().includes(query) || entry.username.toLowerCase().includes(query));
+      if (!rows.length) {
+        rowsWrap.append(el("div", { style: { color: "var(--text-dim)", fontSize: "12.5px" } },
+          vaultEntries.length ? "No entries match your search." : "No saved credentials yet."));
+      }
+      for (const entry of rows) {
+        rowsWrap.append(vaultRow(entry));
+      }
+    }
+
+    function vaultRow(entry) {
+      const secret = el("span", { class: "vault-secret", "aria-label": "password" }, "••••••••");
+      let shown = false;
+      const revealBtn = el("button", { class: "btn small", title: "Show password (explicit)" }, "Show");
+      revealBtn.addEventListener("click", async () => {
+        if (shown) { secret.textContent = "••••••••"; shown = false; revealBtn.textContent = "Show"; return; }
+        const result = await window.jmdb.passwords.reveal(entry.id).catch(() => null);
+        if (result && result.ok) {
+          secret.textContent = result.password;
+          shown = true;
+          revealBtn.textContent = "Hide";
+        } else {
+          toast(`Couldn't reveal: ${(result && result.error) || "locked"}`, "error");
+        }
+      });
+      const copyBtn = el("button", { class: "btn small", title: "Copy password to clipboard" }, "Copy");
+      copyBtn.addEventListener("click", async () => {
+        const result = await window.jmdb.passwords.copy(entry.id).catch(() => null);
+        toast(result && result.ok ? "Password copied" : "Copy failed", result && result.ok ? "success" : "error");
+      });
+      const editBtn = el("button", { class: "btn small" }, "Edit");
+      editBtn.addEventListener("click", () => {
+        row.replaceWith(vaultEditRow(entry));
+      });
+      const delBtn = el("button", { class: "btn small danger" }, "Delete");
+      delBtn.addEventListener("click", async () => {
+        const sure = await confirmDialog({
+          title: "Delete vault entry?",
+          body: `Delete the saved credentials for ${entry.username} @ ${entry.domain}? This cannot be undone.`,
+          confirmLabel: "Delete", danger: true,
+        });
+        if (!sure) return;
+        const result = await window.jmdb.passwords.remove(entry.id).catch(() => null);
+        if (result && result.ok) { await loadVault(); renderVaultRows(); toast("Entry deleted", "success"); }
+        else toast("Couldn't delete the entry", "error");
+      });
+      const row = el("div", { class: "vault-row" },
+        el("div", { class: "top" },
+          el("span", { class: "name", title: `${entry.username} @ ${entry.domain}` }, entry.domain),
+          el("span", { class: "user" }, entry.username)),
+        secret,
+        el("div", { class: "actions" }, revealBtn, copyBtn, editBtn, delBtn));
+      return row;
+    }
+
+    function vaultEditRow(entry) {
+      const fDomain = el("input", { class: "input", type: "text", value: entry.domain });
+      const fUser = el("input", { class: "input", type: "text", value: entry.username });
+      const fPass = el("input", { class: "input", type: "password", placeholder: "new password (leave blank to keep)" });
+      const fNotes = el("input", { class: "input", type: "text", value: entry.notes || "" });
+      const saveBtn = el("button", { class: "btn small primary" }, "Save");
+      const row = el("div", { class: "vault-row editing" },
+        el("div", { class: "vault-add" }, fDomain, fUser, fPass, fNotes, saveBtn));
+      saveBtn.addEventListener("click", async () => {
+        const fields = { domain: fDomain.value, username: fUser.value, notes: fNotes.value };
+        if (fPass.value) fields.password = fPass.value;
+        const result = await window.jmdb.passwords.update(entry.id, fields).catch(() => null);
+        if (result && result.ok) { await loadVault(); renderVaultRows(); toast("Entry updated", "success"); }
+        else toast(`Couldn't update: ${(result && result.error) || "vault error"}`, "error");
+      });
+      return row;
+    }
+
+    renderVaultRows();
+    content.append(vaultPanel);
   }
 
   /* ------------------------------------------------------------- favorites bar */
@@ -488,7 +649,13 @@ export default async function render(container, route) {
 
   // initial state: list tabs; if none, restore-or-create the first tab; activate the first
   tabs = await hub.tabs();
-  if (!tabs.length) {
+  // a ?url= param (Services cards) opens that site in a new tab directly —
+  // the page owns the whole tab lifecycle, no cross-page timing tricks
+  const wantedUrl = route && route.params ? route.params.get("url") : null;
+  if (wantedUrl && /^https?:\/\//i.test(wantedUrl)) {
+    await hub.createTab(wantedUrl).catch(() => {});
+    tabs = await hub.tabs();
+  } else if (!tabs.length) {
     // main restores the previous session's tabs on the Hub's first activation;
     // if still none (fresh profile), open the home page in a tab
     await hub.createTab("https://duckduckgo.com").catch(() => {});

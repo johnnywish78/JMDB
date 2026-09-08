@@ -101,10 +101,25 @@ async function renderRoute(route) {
         console.error(error);
       }
       updateNav(route);
+      notifySmokeReady();
       return;
     }
   }
   navigate("/home");
+}
+
+/** Smoke harness only (JMDB_SMOKE=1 → preload exposes window.jmdb.smoke):
+ * report that the renderer booted and finished rendering its first real
+ * page. No-op in normal runs. */
+let smokeReadySent = false;
+function notifySmokeReady() {
+  if (smokeReadySent) return;
+  smokeReadySent = true;
+  try {
+    window.jmdb?.smoke?.ready?.();
+  } catch {
+    /* smoke-only channel; never affects normal use */
+  }
 }
 
 function updateNav(route) {

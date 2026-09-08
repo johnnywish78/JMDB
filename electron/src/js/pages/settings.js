@@ -178,8 +178,16 @@ export default async function render(container) {
     })());
   browserSection.append(engineRow);
   browserSection.append(numberRow("Default zoom for new tabs", "Percent (50–300). Existing tabs keep their own zoom.", "browser_default_zoom", values.browser_default_zoom, 50, 300));
-  browserSection.append(toggleRow("Allow cookies in Browser Hub", "Persistent logins via the app session partition", "browser_allow_cookies", values.browser_allow_cookies));
-  browserSection.append(toggleRow("Enable JavaScript", "Disabling breaks most modern sites", "browser_enable_javascript", values.browser_enable_javascript));
+  browserSection.append(toggleRow(
+    "Allow cookies in Browser Hub",
+    "Applies to the hub session immediately; off also affects new sites you open",
+    "browser_allow_cookies", values.browser_allow_cookies,
+    (value) => window.jmdb?.hub?.setCookiesEnabled(value !== false)));
+  browserSection.append(toggleRow(
+    "Enable JavaScript",
+    "Affects tabs opened from now on (restored tabs keep their setting)",
+    "browser_enable_javascript", values.browser_enable_javascript,
+    (value) => window.jmdb?.hub?.setJavaScriptEnabled(value !== false)));
   container.append(browserSection);
 
   /* ------------------------------------------------ metadata */
@@ -320,10 +328,19 @@ async function persist(patch) {
   await saveSettings(patch);
 }
 
-function toggleRow(title, subtitle, key, value) {
+function toggleRow(title, subtitle, key, value, onApply = null) {
   const input = el("input", { type: "checkbox" });
   input.checked = value !== false && value !== 0;
-  input.addEventListener("change", () => persist({ [key]: input.checked }));
+  input.addEventListener("change", async () => {
+    try {
+      await persist({ [key]: input.checked });
+      // live-apply hook (e.g. Browser Hub policy changes) — only after the
+      // value is actually saved; silently skipped where the bridge is absent
+      if (onApply) await onApply(input.checked);
+    } catch {
+      /* persist shows its own error toast */
+    }
+  });
   return el("div", { class: "setting-row" },
     el("div", { class: "labels" }, el("div", { class: "t" }, title), el("div", { class: "s" }, subtitle)),
     el("label", { class: "switch" }, input, el("span", { class: "track" }), el("span", { class: "thumb" })));

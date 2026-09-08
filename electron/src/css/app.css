@@ -336,7 +336,8 @@ label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px
   display: flex; flex-direction: column; gap: 6px; position: relative; overflow: hidden;
 }
 .service-card::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: var(--svc-accent, var(--accent)); }
-.service-card .svc-icon { font-size: 26px; }
+.service-card .svc-icon { font-size: 26px; color: var(--svc-accent, var(--accent)); display: flex; align-items: center; }
+.service-card .svc-icon svg.icon { width: 34px; height: 34px; }
 .service-card h3 { font-size: 16px; }
 .service-card .desc { color: var(--text-dim); font-size: 12.5px; line-height: 1.5; }
 .service-card .actions { margin-top: auto; padding-top: 14px; display: flex; gap: 8px; }
@@ -385,6 +386,7 @@ label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px
   background: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), transparent);
   transition: opacity 0.25s;
 }
+.player-top .artwork { width: 42px; height: 60px; border-radius: 6px; object-fit: cover; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55); flex-shrink: 0; }
 .player-top .title { font-weight: 700; font-size: 15.5px; }
 .player-top .subtitle { color: rgba(255, 255, 255, 0.65); font-size: 12.5px; }
 .player-controls {
@@ -423,6 +425,7 @@ label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px
 .queue-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px; cursor: pointer; font-size: 13px; }
 .queue-item:hover { background: rgba(255, 255, 255, 0.08); }
 .queue-item.current { background: var(--accent-soft); color: var(--accent); }
+.queue-item .thumb { width: 30px; height: 42px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: rgba(255, 255, 255, 0.08); }
 .player-settings .setting-row { background: transparent; border: 0; padding: 8px 0; color: #e8eaf0; }
 .player-settings .select { background: rgba(255, 255, 255, 0.1); color: #fff; border-color: rgba(255, 255, 255, 0.2); }
 .player-settings .select option { color: #111; }
@@ -509,6 +512,21 @@ video::cue { background: rgba(0, 0, 0, 0.65); font-size: 105%; }
 .dl-row .top { display: flex; gap: 8px; align-items: center; }
 .dl-row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dl-row .state { margin-left: auto; font-size: 11px; color: var(--text-dim); }
+
+.hub-vault { position: absolute; top: 96px; right: 18px; z-index: 30; width: 380px; max-height: 70%; overflow: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); }
+.hub-vault h4 { font-size: 13px; color: var(--text-dim); }
+.hub-vault .vault-backend { font-size: 11.5px; color: var(--text-faint); margin: 4px 0 10px; line-height: 1.5; }
+.hub-vault .vault-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.hub-vault .vault-add { display: flex; flex-wrap: wrap; gap: 6px; }
+.hub-vault .vault-add .input { flex: 1 1 40%; min-width: 100px; }
+.vault-row { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 10px; background: var(--surface-2); font-size: 12.5px; }
+.vault-row .top { display: flex; gap: 8px; align-items: baseline; }
+.vault-row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-row .user { color: var(--text-dim); font-size: 11.5px; }
+.vault-row .vault-secret { font-family: var(--mono, monospace); letter-spacing: 0.06em; color: var(--text-dim); }
+.vault-row .actions { display: flex; gap: 6px; }
 .dl-row .bar { height: 4px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
 .dl-row .bar > span { display: block; height: 100%; background: var(--accent); }
 .dl-row .actions { display: flex; gap: 8px; }

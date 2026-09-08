@@ -191,6 +191,7 @@ export const ICONS = {
   external: `<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 13v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6"/>`,
   refresh: `<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/>`,
   plus: `<path d="M12 5v14M5 12h14"/>`,
+  "chevron-left": `<path d="M15 5l-7 7 7 7"/>`,
 };
 
 export function icon(name, cls = "icon") {
