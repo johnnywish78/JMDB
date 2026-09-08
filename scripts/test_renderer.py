@@ -93,6 +93,36 @@ def main() -> int:
     replaced2 = replace_with_real_media()
     check("real playable media files in place (both trees)", replaced2 >= 10, f"{replaced2} files")
 
+    # Real ffprobe facts for the played movie (vp8) and a REAL 10-bit HEVC
+    # file for the second movie — the exact codec class the user reported.
+    # Probing is real (ProbeTools on the actual bytes); scan-time probing is
+    # disabled in the seed, so the facts are attached explicitly here.
+    from app.library.probe import ProbeTools
+    hevc_src = Path("/tmp/jmdb-rt/test-hevc10.mkv")
+    probe_tools = ProbeTools()
+    movies_catalog = ctx.services.movies
+    hevc_movie_id = None
+    # HEVC goes to the SECOND movie (id != movie_id used by the main player
+    # checks, which is Night Runner id=1); the played movie keeps the
+    # playable VP8 bytes and gets its real probe facts attached too.
+    movie_rows = list(ctx.services.repos.db.query("SELECT id FROM movies ORDER BY id"))
+    for row in movie_rows:
+        item = movies_catalog.playable(row["id"])
+        if item is None:
+            continue
+        if hevc_src.exists() and probe_tools.available and row["id"] != movie_rows[0]["id"]:
+            shutil.copy2(hevc_src, item.path)
+            probe = probe_tools.probe(item.path)
+            assert probe and probe.video_codec.lower().startswith("hevc"), "hevc probe failed"
+            ctx.services.repos.files.set_probe(item.media_file_id, probe.to_dict())
+            hevc_movie_id = row["id"]
+        elif probe_tools.available:
+            probe = probe_tools.probe(item.path)
+            if probe:
+                ctx.services.repos.files.set_probe(item.media_file_id, probe.to_dict())
+    check("probed codec facts attached (incl. a real 10-bit HEVC movie)",
+          hevc_movie_id is not None, f"hevc movie id={hevc_movie_id}")
+
     import uvicorn
 
     app = create_app(context=ctx)
@@ -428,7 +458,7 @@ def main() -> int:
                                track ? track.getAttribute('src') : 'none']);
     })()""", promise=True, timeout_s=20)
         state = _parse_json(state_raw)
-        if isinstance(state, list) and len(state) == 5:
+        if isinstance(state, list) and len(state) == 5 and all(v is not None for v in state):
             current, duration, ready, error, track = state
             check("real video plays in embedded player",
                   float(current) > 0.8 and float(duration) >= 10 and ready in (3, 4) and error == "none",
@@ -448,6 +478,10 @@ def main() -> int:
             state2 = _parse_json(state2_raw)
             if isinstance(state2, list) and len(state2) == 3:
                 check("pause/seek/resume controls work", float(state2[1]) >= 1.5 and float(state2[2]) == 0, f"t={state2[1]:.2f}s")
+            else:
+                # honest failure — a parse miss here would otherwise silently
+                # skip the whole autoplay/watched/history chain (fake green)
+                check("pause/seek/resume controls work", False, f"probe never landed: {str(state2_raw)[:80]}")
             # progress reaches the backend while playing (report fires on pause + every 5s)
             time.sleep(0.8)
             pump()
@@ -475,7 +509,99 @@ def main() -> int:
             latest = next((row for row in hist.get("items", []) if row.get("media_type") == "movie" and row.get("media_id") == movie_id), {})
             check("playback session recorded in history", bool(latest.get("id")), json.dumps(latest)[:110])
 
+            # seek step honors the persisted setting (seek_step_seconds),
+            # changed through the REAL settings page (store cache + API)
+            goto("#/settings", "document.body.textContent.includes('Seek step') ? 1 : 0")
+            js(view, "(async () => { const row = [...document.querySelectorAll('.setting-row')].find(r => r.textContent.includes('Seek step')); const input = row && row.querySelector('input'); if (!input) return 'no input'; input.value = '7'; input.dispatchEvent(new Event('change')); await new Promise(r => setTimeout(r, 600)); return 'saved'; })()", promise=True, timeout_s=10)
+            goto(f"#/movie/{movie_id}", "document.querySelectorAll('.play-btn').length")
+            js(view, "(() => { document.querySelector('.play-btn') && document.querySelector('.play-btn').click(); return 1 })()", timeout_s=3)
+            ok_seek = wait_js(view, "document.querySelector('.player video') ? 1 : 0", 20)
+            if ok_seek:
+                js(view, "(async () => { await new Promise(r => setTimeout(r, 800)); const video = document.querySelector('.player video'); video.pause(); video.currentTime = 2; await new Promise(r => setTimeout(r, 250)); const before = video.currentTime; document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight', bubbles: true})); await new Promise(r => setTimeout(r, 300)); window.__seek_result = [before, video.currentTime]; return 1; })()", promise=True, timeout_s=15)
+                seek_res = _parse_json(js(view, "JSON.stringify(window.__seek_result)", timeout_s=5))
+                if isinstance(seek_res, list) and len(seek_res) == 2:
+                    delta = float(seek_res[1]) - float(seek_res[0])
+                    check("seek step honors the seek_step_seconds setting", 5.5 <= delta <= 8.5, f"delta {delta:.1f}s (setting 7)")
+                else:
+                    check("seek step honors the seek_step_seconds setting", False, str(seek_res)[:60])
+                # codec facts in the settings panel (real probe data)
+                js(view, "(() => { const b = [...document.querySelectorAll('.pbtn')].find(x => x.getAttribute('title') === 'Settings'); if (b) b.click(); return 1 })()", timeout_s=3)
+                pump()
+                codec_row = js(view, "(() => { const panel = document.querySelector('.player-settings'); if (!panel) return ''; const row = [...panel.querySelectorAll('.setting-row')].find(r => r.textContent.includes('File')); return row ? row.textContent : ''; })()", timeout_s=5)
+                check("player settings panel shows real codec facts", "vp8" in str(codec_row), str(codec_row)[:90])
+                js(view, "(() => { document.querySelector('.player-top .pbtn').click(); return 1 })()", timeout_s=3)
+                gone = wait_js(view, "document.querySelector('.player') ? 0 : 1", 8)
+                check("player exits via Back after codec check", bool(gone))
+            # restore the default so later checks are unaffected
+            goto("#/settings", "document.body.textContent.includes('Seek step') ? 1 : 0")
+            js(view, "(async () => { const row = [...document.querySelectorAll('.setting-row')].find(r => r.textContent.includes('Seek step')); const input = row && row.querySelector('input'); if (input) { input.value = '10'; input.dispatchEvent(new Event('change')); await new Promise(r => setTimeout(r, 400)); } return 1; })()", promise=True, timeout_s=10)
+
+        else:
+            check("real video plays in embedded player", False,
+                  f"video state unusable: {str(state_raw)[:90]}")
+
+        # ---- HEVC decode-failure path (the user's reported 1080p 10-bit case):
+        # this Chromium build cannot decode HEVC, so the honest fallback box
+        # must appear - never a silent black screen - and the controls must
+        # stay reachable (no idle-hiding in a failure state).
+        if hevc_movie_id:
+            hevc_nav = goto(f"#/movie/{hevc_movie_id}", "document.querySelectorAll('.play-btn').length")
+            check("HEVC movie detail offers Play", int(hevc_nav or 0) >= 1)
+            js(view, "(() => { document.querySelector('.play-btn').click(); return 1 })()", timeout_s=3)
+            hevc_open = wait_js(view, "document.querySelector('.player') ? 1 : 0", 20)
+            if hevc_open:
+                box = wait_js(view, "document.querySelector('.center-msg .video-error') ? 1 : 0", 12)
+                hevc_state = js(view, "(() => { const player = document.querySelector('.player'); const video = player && player.querySelector('video'); return JSON.stringify({ failureClass: player ? player.classList.contains('failure') : false, hasSrc: video ? Boolean(video.getAttribute('src')) : null, externalBtn: Boolean([...document.querySelectorAll('.center-msg .btn')].find(b => b.textContent.includes('external player'))), backBtn: Boolean([...document.querySelectorAll('.center-msg .btn')].find(b => b.textContent.trim() === 'Back')), codecNote: (document.querySelector('.center-msg') || {textContent: ''}).textContent.includes('hevc') }); })()", timeout_s=5)
+                hs = _parse_json(hevc_state) or {}
+                check("HEVC movie shows the honest decode-failure fallback", bool(box), "error box rendered")
+                check("HEVC failure keeps controls reachable and stops the media",
+                      bool(hs.get("failureClass")) and hs.get("hasSrc") is False
+                      and bool(hs.get("externalBtn")) and bool(hs.get("backBtn")),
+                      str(hs)[:110])
+                check("HEVC failure names the real codec", bool(hs.get("codecNote")), str(hs)[:80])
+                js(view, "(() => { const b = [...document.querySelectorAll('.center-msg .btn')].find(x => x.textContent.trim() === 'Back'); if (b) b.click(); return 1 })()", timeout_s=3)
+                hg = wait_js(view, "document.querySelector('.player') ? 0 : 1", 8)
+                check("HEVC failure exits via Back", bool(hg))
+            else:
+                check("HEVC movie shows the honest decode-failure fallback", False, "player never opened")
+        else:
+            check("HEVC movie shows the honest decode-failure fallback", False, "no HEVC sample in this environment")
+
         # ---- episode player: subtitles (the episode has a real .srt) ----
+        # Default subtitle language: set through the REAL settings page, then
+        # playback must auto-select the matching track (no manual click).
+        goto("#/settings", "document.body.textContent.includes('Default subtitle language') ? 1 : 0")
+        js(view, "(async () => { const row = [...document.querySelectorAll('.setting-row')].find(r => r.textContent.includes('Default subtitle language')); const input = row && row.querySelector('input'); if (!input) return 'no input'; input.value = 'en'; input.dispatchEvent(new Event('change')); await new Promise(r => setTimeout(r, 600)); return 'saved'; })()", promise=True, timeout_s=10)
+        ep_auto_ok = goto("#/episode/1", "document.querySelector('.play-btn') ? 1 : 0")
+        if ep_auto_ok:
+            js(view, "(() => { document.querySelector('.play-btn').click(); return 1 })()", timeout_s=3)
+            auto_open = wait_js(view, "document.querySelector('.player video') ? 1 : 0", 20)
+            if auto_open:
+                auto_raw = js(view, "(async () => { await new Promise(r => setTimeout(r, 900)); const video = document.querySelector('.player video'); return JSON.stringify([video.querySelectorAll('track').length, video.textTracks.length, (video.textTracks[0] && video.textTracks[0].mode) || 'none']); })()", promise=True, timeout_s=12)
+                auto = _parse_json(auto_raw)
+                if isinstance(auto, list) and len(auto) == 3:
+                    check("default subtitle language auto-selects the track",
+                          auto[0] >= 1 and auto[1] >= 1 and auto[2] == "showing",
+                          f"tracks={auto[0]}, textTracks={auto[1]}, mode={auto[2]}")
+                else:
+                    check("default subtitle language auto-selects the track", False, str(auto_raw)[:60])
+                # subtitle delay: real cue-time shifting through the menu buttons
+                js(view, "(() => { document.querySelector('.player-controls .pbtn[title^=Subtitles]').click(); return 1 })()", timeout_s=3)
+                pump()
+                delay_raw = js(view, "(async () => { const menu = document.querySelector('.subtitle-menu'); if (!menu) return JSON.stringify({menu: false}); const plus = [...menu.querySelectorAll('.delay-row button')].find(b => b.textContent.includes('+0.25')); if (!plus) return JSON.stringify({menu: true, plus: false}); const video = document.querySelector('.player video'); let track = null; for (let i = 0; i < video.textTracks.length; i++) if (video.textTracks[i].mode === 'showing') track = video.textTracks[i]; if (!track || !track.cues || !track.cues.length) { await new Promise(r => setTimeout(r, 800)); for (let i = 0; i < video.textTracks.length; i++) if (video.textTracks[i].mode === 'showing') track = video.textTracks[i]; } if (!track || !track.cues || !track.cues.length) return JSON.stringify({menu: true, plus: true, cues: 0}); const before = track.cues[0].startTime; plus.click(); await new Promise(r => setTimeout(r, 300)); return JSON.stringify({menu: true, plus: true, cues: track.cues.length, before: before, after: track.cues[0].startTime}); })()", promise=True, timeout_s=15)
+                dl = _parse_json(delay_raw) or {}
+                if isinstance(dl, dict) and dl.get("before") is not None:
+                    shift = round(float(dl["after"]) - float(dl["before"]), 3)
+                    check("subtitle delay shifts real cue times", abs(shift - 0.25) < 0.05,
+                          f"cue0 {dl['before']} -> {dl['after']} ({dl['cues']} cues)")
+                else:
+                    check("subtitle delay shifts real cue times", False, str(delay_raw)[:70])
+                js(view, "(() => { document.querySelector('.player-top .pbtn').click(); return 1 })()", timeout_s=3)
+                wait_js(view, "document.querySelector('.player') ? 0 : 1", 8)
+            # reset the language setting to its default for the checks below
+            goto("#/settings", "document.body.textContent.includes('Default subtitle language') ? 1 : 0")
+            js(view, "(async () => { const row = [...document.querySelectorAll('.setting-row')].find(r => r.textContent.includes('Default subtitle language')); const input = row && row.querySelector('input'); if (input) { input.value = ''; input.dispatchEvent(new Event('change')); await new Promise(r => setTimeout(r, 400)); } return 1; })()", promise=True, timeout_s=10)
+
         ep_ok = goto("#/episode/1", "document.querySelector('.play-btn') ? 1 : 0")
         check("episode detail offers Play", bool(ep_ok))
         js(view, "(() => { document.querySelector('.play-btn').click(); return 1 })()", timeout_s=3)

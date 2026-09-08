@@ -48,8 +48,22 @@ class Player {
     this.closed = false;
     this.rate = 1;
     this.subtitle = null;
+    this.subtitleDelay = 0;
+    this.failed = false;
     this.sessionId = data.session_id;
     this.lastDirection = 1;
+  }
+
+  /* codec facts from the backend's ffprobe, for honest UI decisions */
+  get fileCodec() { return this.media.file?.video_codec || ""; }
+  get audioStreamCount() { return (this.media.file?.audio_tracks || []).length; }
+  get seekStep() {
+    const step = Number(store.settings.seek_step_seconds);
+    return Number.isFinite(step) && step > 0 && step <= 120 ? step : 10;
+  }
+  get volumeStep() {
+    const step = Number(store.settings.volume_step);
+    return Number.isFinite(step) && step > 0 && step <= 50 ? step / 100 : 0.05;
   }
 
   open() {
@@ -77,6 +91,18 @@ class Player {
         this.showResumePrompt();
       }
     });
+    // Some Chromium builds demux an MKV fine but can't decode the video codec
+    // (e.g. HEVC without hardware support): audio plays over a BLACK screen
+    // and NO error event fires. The decode monitor catches that silent case.
+    // (videoWidth can legitimately stay 0 until the first frame decodes, so
+    // only SUSTAINED playback without any frame counts as a failure.)
+    this.startDecodeMonitor();
+    document.addEventListener("fullscreenchange", this.onFullscreenChange = () => {
+      if (this.fullscreenButton) {
+        this.fullscreenButton.classList.toggle("active", Boolean(document.fullscreenElement));
+      }
+    });
+    this.autoSelectSubtitle();
     this.video.addEventListener("timeupdate", () => this.onTimeUpdate());
     this.video.addEventListener("progress", () => this.updateBuffer());
     this.video.addEventListener("play", () => this.setPlaying(true));
@@ -192,6 +218,7 @@ class Player {
   wake() {
     this.root.classList.remove("idle");
     clearTimeout(this.idleTimer);
+    if (this.failed) return; // failure state always shows its controls
     this.idleTimer = setTimeout(() => {
       if (!this.video.paused) this.root.classList.add("idle");
     }, IDLE_TIMEOUT);
@@ -288,9 +315,17 @@ class Player {
   /* ------------------------------------------------------------- subtitles */
   toggleSubtitleMenu() {
     this.closePanels();
-    const subs = this.data.subtitles || [];
-    const menu = el("div", { class: "player-settings subtitle-menu" });
+    this.subtitleMenu = el("div", { class: "player-settings subtitle-menu" });
+    this.renderSubtitleMenu();
+    this.root.append(this.subtitleMenu);
+  }
+
+  renderSubtitleMenu() {
+    if (!this.subtitleMenu) return;
+    const menu = this.subtitleMenu;
+    menu.replaceChildren();
     menu.append(el("h4", {}, "Subtitles"));
+    const subs = this.data.subtitles || [];
     const off = el("button", { class: this.subtitle ? "" : "on", onclick: () => this.selectSubtitle(null) }, "Off");
     menu.append(off);
     for (const track of subs) {
@@ -300,8 +335,40 @@ class Player {
       }, track.label || track.language || "Subtitle"));
     }
     if (!subs.length) menu.append(el("div", { style: { color: "rgba(255,255,255,.5)", fontSize: "12px", padding: "8px 10px" } }, "No external subtitles found for this file"));
-    this.subtitleMenu = menu;
-    this.root.append(menu);
+    // subtitle delay (real: shifts the active track's cue times)
+    const delayRow = el("div", { class: "delay-row" },
+      el("span", { class: "delay-label" }, `Delay ${this.subtitleDelay > 0 ? "+" : ""}${this.subtitleDelay.toFixed(2)}s`),
+      el("button", { title: "Subtitles earlier (J)", onclick: () => this.applySubtitleDelay(-0.25) }, "−0.25s"),
+      el("button", { title: "Subtitles later (Shift+J)", onclick: () => this.applySubtitleDelay(0.25) }, "+0.25s"),
+      this.subtitleDelay !== 0 ? el("button", { title: "Reset delay", onclick: () => this.applySubtitleDelay(-this.subtitleDelay) }, "Reset") : null);
+    menu.append(delayRow);
+  }
+
+  /** Pick the subtitle matching default_subtitle_language (settings) once. */
+  autoSelectSubtitle() {
+    const language = String(store.settings.default_subtitle_language || "").trim().toLowerCase();
+    if (!language || this.subtitle !== null) return;
+    const subs = this.data.subtitles || [];
+    const match = subs.find((track) => String(track.language || "").toLowerCase() === language)
+      || subs.find((track) => String(track.language || "").toLowerCase().startsWith(language));
+    if (match) this.selectSubtitle(match.id);
+  }
+
+  /** Shift the active external subtitle by `delta` seconds (real cue times). */
+  applySubtitleDelay(delta) {
+    if (!delta) { this.renderSubtitleMenu(); return; }
+    this.subtitleDelay = Math.round((this.subtitleDelay + delta) * 100) / 100;
+    const list = this.video.textTracks;
+    for (let i = 0; i < list.length; i++) {
+      const track = list[i];
+      if (track.mode !== "showing" || !track.cues) continue;
+      for (let j = 0; j < track.cues.length; j++) {
+        track.cues[j].startTime += delta;
+        track.cues[j].endTime += delta;
+      }
+    }
+    if (this.subtitleMenu) this.renderSubtitleMenu();
+    toast(`Subtitle delay: ${this.subtitleDelay > 0 ? "+" : ""}${this.subtitleDelay.toFixed(2)}s`, "info", 1400);
   }
 
   selectSubtitle(id) {
@@ -317,6 +384,7 @@ class Player {
         });
         node.addEventListener("load", () => {
           this.video.textTracks[0].mode = "showing";
+          this.applySubtitleDelay(0); // no-op re-render; cues are fresh
         });
         this.video.append(node);
         if (this.video.textTracks[0]) this.video.textTracks[0].mode = "showing";
@@ -359,10 +427,64 @@ class Player {
     });
     panel.append(el("div", { class: "setting-row" }, autoplayLabel, switchEl));
 
+    const file = this.media.file || {};
+    const audioStreams = file.audio_tracks || [];
+    const fileDetail = [
+      file.name || "",
+      file.mime || "",
+      file.video_codec ? `video: ${file.video_codec}` : "",
+      file.width ? `${file.width}×${file.height}` : "",
+      audioStreams.length > 1
+        ? `${audioStreams.length} audio streams (${audioStreams.map((s) => s.language || s.codec || "?").join(", ")})`
+        : "",
+    ].filter(Boolean).join(" · ");
     panel.append(el("div", { class: "setting-row" },
       el("div", { class: "labels" },
         el("div", { class: "t" }, "File"),
-        el("div", { class: "s" }, `${this.media.file?.name || ""} · ${this.media.file?.mime || ""}`))));
+        el("div", { class: "s" }, fileDetail || "unknown"))));
+
+    // Audio tracks: real selection when the platform exposes AudioTrackList,
+    // honest information (not a dead control) when it doesn't.
+    const audioList = this.video.audioTracks;
+    if (audioList && audioList.length > 1) {
+      panel.append(el("div", { class: "setting-row" },
+        el("div", { class: "labels" },
+          el("div", { class: "t" }, "Audio track"),
+          el("div", { class: "s" }, "Switch the active audio stream"))));
+      const pop = el("div", { class: "speed-pop" });
+      for (let i = 0; i < audioList.length; i++) {
+        const track = audioList[i];
+        pop.append(el("button", {
+          class: track.enabled ? "on" : "",
+          onclick: () => {
+            for (let j = 0; j < audioList.length; j++) audioList[j].enabled = j === i;
+            this.toggleSettings(); this.toggleSettings(); // re-render selection
+          },
+        }, track.label || track.language || `Track ${i + 1}`));
+      }
+      panel.append(pop);
+    } else if (audioStreams.length > 1) {
+      panel.append(el("div", { class: "setting-row" },
+        el("div", { class: "labels" },
+          el("div", { class: "t" }, "Audio track"),
+          el("div", { class: "s" }, `${audioStreams.length} streams in this file — the embedded player can't switch tracks; use the external player for that`))));
+    }
+
+    // Subtitle delay mirrors the subtitle menu control (real cue shifting)
+    panel.append(el("div", { class: "setting-row" },
+      el("div", { class: "labels" },
+        el("div", { class: "t" }, "Subtitle delay"),
+        el("div", { class: "s" }, `Current: ${this.subtitleDelay > 0 ? "+" : ""}${this.subtitleDelay.toFixed(2)}s (J / Shift+J)`)),
+      el("div", { class: "delay-row" },
+        el("button", { onclick: () => this.applySubtitleDelay(-0.25) }, "−"),
+        el("button", { onclick: () => this.applySubtitleDelay(0.25) }, "+"))));
+
+    if (!this.embeddedCodecSupported()) {
+      panel.append(el("div", { class: "setting-row codec-warning" },
+        el("div", { class: "labels" },
+          el("div", { class: "t" }, `Embedded playback may show no video (${file.video_codec || "codec"})`),
+          el("div", { class: "s" }, "This system can't decode it inside JMDB (Chromium has no software fallback for it). If the screen stays black, use the external player button in the top bar."))));
+    }
 
     this.settingsPanel = panel;
     this.root.append(panel);
@@ -444,13 +566,83 @@ class Player {
   }
 
   /* ------------------------------------------------------------- errors */
+  /** True when the embedded Chromium can decode this file's video codec.
+   * Chromium only plays HEVC with working hardware decode (no software
+   * fallback) — ask the platform's own capability API instead of guessing. */
+  embeddedCodecSupported() {
+    const codec = this.fileCodec.toLowerCase();
+    const mime = this.media.file?.mime || "";
+    const probe = document.createElement("video");
+    const supports = (type) => probe.canPlayType(type) !== "";
+    if (codec === "hevc" || codec === "h265") {
+      // Chromium plays HEVC only with hardware decode; this is the platform's
+      // own capability answer (guaranteed accurate since Chrome 107)
+      return supports('video/mp4; codecs="hvc1.1.6.L93.B0"')
+        || supports('video/mp4; codecs="hev1.1.6.L93.B0"');
+    }
+    if (codec === "av1") return supports('video/mp4; codecs="av01.0.05M.08"');
+    if (mime && supports(mime) === false && codec) return false;
+    return true; // unknown codecs: let the element try, the watchdog catches failures
+  }
+
+  /** Black-screen monitor: actively PLAYING (time advancing) yet not a
+   * single video frame decoded. Three consecutive 1s samples while playing
+   * with videoWidth === 0 → honest failure; anything else (paused, stalled,
+   * still buffering the first frame) just resets. A file that decodes at any
+   * point stops the monitor for good. */
+  startDecodeMonitor() {
+    if (this.media.type === "track") return; // audio-only by design
+    let lastTime = -1;
+    let strikes = 0;
+    this.decodeMonitor = setInterval(() => {
+      if (this.failed || this.closed) {
+        clearInterval(this.decodeMonitor);
+        return;
+      }
+      const video = this.video;
+      if (video.videoWidth > 0) { // first frame decoded — healthy forever
+        clearInterval(this.decodeMonitor);
+        return;
+      }
+      const advancing = !video.paused && video.currentTime > lastTime + 0.05;
+      lastTime = video.currentTime;
+      if (advancing && video.readyState >= 2 && video.currentTime > 1.5) {
+        strikes += 1;
+        if (strikes >= 3) {
+          clearInterval(this.decodeMonitor);
+          this.showDecodeFailure("Audio plays but no video frame was ever decoded " +
+            `on this machine${this.fileCodec ? ` — codec ${this.fileCodec}` : ""}.`);
+        }
+      } else {
+        strikes = 0;
+      }
+    }, 1000);
+  }
+
   onVideoError() {
     const error = this.video.error;
     const detail = error ? `${error.message || ""} (code ${error.code})` : "unknown error";
+    this.showDecodeFailure(detail);
+  }
+
+  showDecodeFailure(detail) {
+    if (this.failed) return;
+    this.failed = true;
+    if (this.decodeMonitor) clearInterval(this.decodeMonitor);
+    // stop everything: no zombie audio under a dead screen
+    try { this.video.pause(); this.video.removeAttribute("src"); this.video.load(); } catch { /* already gone */ }
+    this.root.classList.add("failure"); // chrome never auto-hides in a failure
+    const codec = this.fileCodec;
+    const streams = this.audioStreamCount;
     const box = el("div", { class: "center-msg" },
       el("h3", { class: "video-error" }, "This file can't play in the embedded player"),
-      el("p", {}, `${this.media.file?.name || this.media.title} — ${detail}. ` +
-        "The container or codec isn't supported by the embedded Chromium player. You can still watch it in an external player."),
+      el("p", {}, `${this.media.file?.name || this.media.title} — ${detail}`),
+      codec ? el("p", { class: "codec-note" },
+        `Codec: ${codec}${this.media.file?.width ? ` · ${this.media.file.width}×${this.media.file.height}` : ""}` +
+        `${streams > 1 ? ` · ${streams} audio streams` : ""}. ` +
+        (codec === "hevc" || codec === "h265"
+          ? "HEVC only plays embedded when this system's GPU provides hardware decoding; VLC/MPV play it in software."
+          : "The embedded Chromium player doesn't support this container/codec.")) : null,
       el("div", { class: "row" },
         el("button", { class: "btn primary", onclick: () => this.playExternal() }, "Open in external player"),
         el("button", { class: "btn", onclick: () => this.close() }, "Back")));
@@ -510,16 +702,20 @@ class Player {
       case "k":
         this.togglePlay();
         break;
-      case "arrowleft": this.seekBy(-10); break;
-      case "arrowright": this.seekBy(10); break;
-      case "j": this.seekBy(-10); break;
-      case "l": this.seekBy(10); break;
+      // step sizes come from the persisted seek_step_seconds / volume_step
+      case "arrowleft": this.seekBy(-this.seekStep); break;
+      case "arrowright": this.seekBy(this.seekStep); break;
+      case "j":
+        if (event.shiftKey) this.applySubtitleDelay(0.25);
+        else this.seekBy(-this.seekStep);
+        break;
+      case "l": this.seekBy(this.seekStep); break;
       case "arrowup":
-        this.video.volume = Math.min(1, this.video.volume + 0.05);
+        this.video.volume = Math.min(1, this.video.volume + this.volumeStep);
         this.volume.value = this.video.volume;
         break;
       case "arrowdown":
-        this.video.volume = Math.max(0, this.video.volume - 0.05);
+        this.video.volume = Math.max(0, this.video.volume - this.volumeStep);
         this.volume.value = this.video.volume;
         break;
       case "m": this.toggleMute(); break;
@@ -569,6 +765,8 @@ class Player {
     if (!skipReport) this.report(true);
     clearInterval(this.reportTimer);
     clearTimeout(this.idleTimer);
+    if (this.decodeMonitor) clearInterval(this.decodeMonitor);
+    if (this.onFullscreenChange) document.removeEventListener("fullscreenchange", this.onFullscreenChange);
     document.removeEventListener("keydown", this.keyHandler);
     document.body.classList.remove("player-open");
     try { this.video.pause(); } catch { /* already gone */ }

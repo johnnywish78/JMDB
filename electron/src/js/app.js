@@ -167,9 +167,21 @@ function wireGlobalEvents() {
     }
   });
   const hidePill = () => document.getElementById("scan-pill").classList.add("hidden");
-  on("scan_finished", (data) => {
+
+  // One reporter for BOTH the WebSocket event and the REST polling fallback,
+  // deduplicated by a signature of the result so a scan that finishes while
+  // both paths are active toasts exactly once.
+  let lastScanSignature = null;
+  function reportScanFinished(data) {
+    if (!data || !data.status) return;
+    const signature = [
+      data.status, data.files_indexed, data.files_seen, data.movies_added,
+      data.shows_added, data.episodes_added, data.tracks_added, data.errors,
+      data.duration_seconds,
+    ].join("|");
+    if (signature === lastScanSignature) return;
+    lastScanSignature = signature;
     hidePill();
-    if (!data) return;
     if (data.status === "completed") {
       // success summaries honor the notify_scan setting; failures always surface
       if (store.settings.notify_scan !== false) {
@@ -185,7 +197,8 @@ function wireGlobalEvents() {
       toast(`Scan ${data.status || "finished"}${data.message ? `: ${data.message}` : ""}`, "error");
     }
     refreshCurrentPage();
-  });
+  }
+  on("scan_finished", reportScanFinished);
   on("scan_failed", (data) => {
     hidePill();
     toast(`Scan failed: ${data.error || "unknown error"}`, "error");
@@ -292,22 +305,37 @@ async function boot() {
     return;
   }
   connectEvents();
-  // polling fallback for scan status (in case WS reconnects late)
+  // Polling fallback for scan status: covers WebSocket outages (missing
+  // websockets package, reconnect windows) with the SAME reporting path as
+  // the WS events — pill while running, one deduplicated finish toast.
+  let pollerSawRunning = false;
   setInterval(async () => {
     try {
       const status = await api.get("/api/scan/status");
       const pill = document.getElementById("scan-pill");
       if (status.running) {
+        pollerSawRunning = true;
         pill.classList.remove("hidden");
         const text = document.getElementById("scan-pill-text");
-        if (text) text.textContent = `Scanning… ${status.files_seen || 0} files`;
+        if (text) {
+          text.textContent = `Scanning… ${status.files_indexed || 0} files` +
+            (status.phase && status.phase !== "indexing" ? ` (${status.phase})` : "");
+        }
       } else {
         pill.classList.add("hidden");
+        // only report a finish the poller itself witnessed starting; the WS
+        // path reports its own (both funnel through the dedup signature)
+        if (pollerSawRunning && status.last_result) {
+          pollerSawRunning = false;
+          reportScanFinished(status.last_result);
+        } else {
+          pollerSawRunning = false;
+        }
       }
     } catch {
       /* backend restarting */
     }
-  }, 5000);
+  }, 2000);
 
   if (!location.hash) location.hash = "#/home";
   else renderRoute(currentRoute());

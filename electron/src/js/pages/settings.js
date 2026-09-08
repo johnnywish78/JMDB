@@ -157,6 +157,9 @@ export default async function render(container) {
   playbackSection.append(
     toggleRow("Autoplay next episode", "Continue to the next episode when one ends", "autoplay_next", values.autoplay_next),
     numberRow("Default volume", "Player volume percent (0–100)", "player_default_volume", values.player_default_volume, 0, 100),
+    numberRow("Seek step", "Seconds the ←/→/J/L keys jump in the player", "seek_step_seconds", values.seek_step_seconds, 1, 120),
+    numberRow("Volume step", "Percent the ↑/↓ keys change the volume", "volume_step", values.volume_step, 1, 50),
+    textRow("Default subtitle language", "Two-letter language code (e.g. en, de) — matching subtitles are selected automatically when playback starts", "default_subtitle_language", values.default_subtitle_language),
     numberRow("Mark watched at", "Percentage of the file after which an item counts as watched", "mark_watched_pct", values.mark_watched_pct, 10, 100),
     numberRow("Resume threshold", "Minimum seconds before we offer to resume", "resume_min_seconds", values.resume_min_seconds, 0, 600),
     textRow("External player", "Optional path to an external player (mpv/VLC). Leave empty for auto-detect.", "external_player_path", values.external_player_path));

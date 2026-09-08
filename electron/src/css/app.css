@@ -396,6 +396,19 @@ label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px
 }
 .player.idle .player-top, .player.idle .player-controls { opacity: 0; pointer-events: none; }
 .player.idle { cursor: none; }
+/* A decode failure must never hide its controls — Back/external stay reachable */
+.player.failure .player-top, .player.failure .player-controls { opacity: 1; pointer-events: auto; }
+.player.failure { cursor: auto; }
+.player .center-msg .codec-note { color: rgba(255, 255, 255, 0.65); font-size: 13px; }
+.player .delay-row { display: flex; align-items: center; gap: 6px; padding: 8px 10px; }
+.player .delay-row .delay-label { flex: 1; font-size: 12.5px; color: rgba(255, 255, 255, 0.75); }
+.player .delay-row button {
+  border: 0; border-radius: 6px; background: rgba(255, 255, 255, 0.1); color: #fff;
+  padding: 4px 10px; cursor: pointer; font-size: 12px;
+}
+.player .delay-row button:hover { background: rgba(255, 255, 255, 0.2); }
+.player .codec-warning .t { color: var(--warn, #ffb454); }
+.pbtn.active { color: var(--accent); }
 .seek-bar { position: relative; height: 18px; display: flex; align-items: center; cursor: pointer; }
 .seek-bar .track { position: absolute; left: 0; right: 0; height: 4.5px; border-radius: 3px; background: rgba(255, 255, 255, 0.22); overflow: hidden; }
 .seek-bar .buffer { position: absolute; left: 0; height: 100%; width: 0; background: rgba(255, 255, 255, 0.25); }
