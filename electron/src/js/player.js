@@ -9,6 +9,7 @@
 import { api, artUrl } from "./api.js";
 import { el, formatClock, icon, toast } from "./ui.js";
 import { navigate } from "./router.js";
+import { store } from "./store.js";
 
 const IDLE_TIMEOUT = 2800;
 
@@ -59,11 +60,13 @@ class Player {
       autoplay: "autoplay",
       preload: "metadata",
     });
-    // default volume from backend setting, persisted locally per session
+    // default volume from the persisted player_default_volume setting
+    // (store.settings mirrors /api/settings), kept per session in localStorage
     const stored = Number(localStorage.getItem("jmdb.volume"));
+    const defaultVolume = Number(store.settings.player_default_volume ?? 90);
     this.video.volume = Number.isFinite(stored) && stored >= 0 && stored <= 1
       ? stored
-      : Math.min(1, Math.max(0, (this.data.volume ?? 90) / 100));
+      : Math.min(1, Math.max(0, (Number.isFinite(defaultVolume) ? defaultVolume : 90) / 100));
     this.video.muted = localStorage.getItem("jmdb.muted") === "1";
     this.buildChrome();
     this.root.append(this.video);

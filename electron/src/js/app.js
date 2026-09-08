@@ -171,13 +171,16 @@ function wireGlobalEvents() {
     hidePill();
     if (!data) return;
     if (data.status === "completed") {
-      toast(
-        `Scan finished in ${Math.max(1, Math.round(data.duration_seconds || 0))}s: ` +
-        `${data.files_indexed || 0} files indexed, ` +
-        `${data.movies_added || 0} movies / ${data.shows_added || 0} shows / ` +
-        `${data.episodes_added || 0} episodes / ${data.tracks_added || 0} tracks added` +
-        (data.errors ? ` (${data.errors} errors)` : ""),
-        "success");
+      // success summaries honor the notify_scan setting; failures always surface
+      if (store.settings.notify_scan !== false) {
+        toast(
+          `Scan finished in ${Math.max(1, Math.round(data.duration_seconds || 0))}s: ` +
+          `${data.files_indexed || 0} files indexed, ` +
+          `${data.movies_added || 0} movies / ${data.shows_added || 0} shows / ` +
+          `${data.episodes_added || 0} episodes / ${data.tracks_added || 0} tracks added` +
+          (data.errors ? ` (${data.errors} errors)` : ""),
+          "success");
+      }
     } else {
       toast(`Scan ${data.status || "finished"}${data.message ? `: ${data.message}` : ""}`, "error");
     }

@@ -208,9 +208,9 @@ export default async function render(container) {
     metaSection.append(el("div", { class: "hint" }, `Provider catalog unavailable: ${error.message}`));
   }
   metaSection.append(
-    toggleRow("Auto-refresh metadata", "Refresh stale details automatically when items appear", "auto_enrich_metadata", values.auto_enrich_metadata),
-    numberRow("Refresh after days", "Re-query metadata older than this many days", "auto_refresh_metadata_days", values.auto_refresh_metadata_days, 1, 365),
-    textRow("Metadata language", "Preferred language for titles and overviews (e.g. en-US, de-DE)", "metadata_language", values.metadata_language));
+    toggleRow("Auto-refresh metadata", "Not active in this build — the value is saved for when background enrichment ships; metadata comes from local files and provider keys above", "auto_enrich_metadata", values.auto_enrich_metadata),
+    numberRow("Refresh after days", "Not active in this build — saved for future background enrichment", "auto_refresh_metadata_days", values.auto_refresh_metadata_days, 1, 365),
+    textRow("Metadata language", "Not active in this build — providers currently answer in English; the value is saved for future use", "metadata_language", values.metadata_language));
   container.append(metaSection);
 
   /* ------------------------------------------------ notifications */

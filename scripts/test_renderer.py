@@ -562,6 +562,20 @@ def main() -> int:
     check("browser settings expose engine/zoom/cookies/JavaScript rows",
           all(brow.get(k) for k in ("cookies", "javascript", "zoom", "engine")), str(brow)[:80])
 
+    # settings audit: controls without a consumer must say so honestly
+    honest = js_value(view, """(() => {
+        const rows = [...document.querySelectorAll('.setting-row')];
+        const auto = rows.find(r => r.textContent.includes('Auto-refresh metadata'));
+        const lang = rows.find(r => r.textContent.includes('Metadata language'));
+        return JSON.stringify({
+          auto: auto ? auto.textContent.includes('Not active in this build') : null,
+          lang: lang ? lang.textContent.includes('Not active in this build') : null,
+        });
+    })()""")
+    hon = honest if isinstance(honest, dict) else (_parse_json(honest) or {})
+    check("inactive metadata settings are labeled honestly",
+          hon.get("auto") is True and hon.get("lang") is True, str(hon)[:80])
+
     # toggling cookies persists through the real settings API (round-trip)
     toggle = js(view, """(async () => {
         const row = [...document.querySelectorAll('.setting-row')].find(r => r.textContent.includes('Allow cookies in Browser Hub'));

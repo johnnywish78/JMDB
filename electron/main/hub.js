@@ -22,7 +22,7 @@ const FAVORITES_FILE = () => path.join(app.getPath("userData"), "hub-favorites.j
 const DEFAULT_ZOOM = 1.0;
 
 class Hub {
-  constructor({ window, onExternal, cookiesEnabled = true, javascriptEnabled = true, defaultZoom = DEFAULT_ZOOM }) {
+  constructor({ window, onExternal, cookiesEnabled = true, javascriptEnabled = true, defaultZoom = 100 }) {
     this.getWindow = window;
     this.onExternal = onExternal;
     this.tabs = new Map(); // id -> { id, view, url, title, favicon, loading, zoom, pinned }
@@ -38,7 +38,12 @@ class Hub {
     // live afterwards. Cookie blocking applies to the whole hub session
     // immediately; the JavaScript flag applies to newly created tabs
     // (Chromium webPreferences are fixed per WebContentsView).
-    this.defaultZoom = defaultZoom;
+    // defaultZoom arrives as a PERCENT (the persisted browser_default_zoom
+    // setting) — normalize it to a Chromium zoom factor once so startup and
+    // restored tabs receive a valid factor (setZoomFactor throws outside
+    // 0.25–5, which would silently drop the saved zoom).
+    this.defaultZoom = DEFAULT_ZOOM;
+    this.setDefaultZoom(defaultZoom);
     this.cookiesEnabled = cookiesEnabled !== false;
     this.javascriptEnabled = javascriptEnabled !== false;
     this.applyCookiePolicy();

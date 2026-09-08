@@ -403,8 +403,9 @@ test("hub constructor seeds policy flags (settings restored at startup)", () => 
     cookiesEnabled: false, javascriptEnabled: false, defaultZoom: 150 });
   assert.equal(hub.cookiesEnabled, false);
   assert.equal(hub.javascriptEnabled, false);
-  assert.equal(hub.defaultZoom, 150);
+  // percent is normalized to a zoom factor the way setDefaultZoom does
+  assert.equal(hub.defaultZoom, 1.5);
   const id = hub.createTab("https://example.com/");
   assert.equal(hub.tabs.get(id).view.__prefs.webPreferences.javascript, false);
-  assert.equal(hub.tabs.get(id).zoom, 150);
+  assert.equal(hub.tabs.get(id).view.webContents.zoomFactor, 1.5);
 });
