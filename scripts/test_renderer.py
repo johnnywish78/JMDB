@@ -135,9 +135,30 @@ def main() -> int:
         js(view, f"(() => {{ location.hash = {json.dumps(hash)}; return true }})()")
         return wait_js(view, expr, timeout_s)
 
+    def raw_svg_sweep(label: str, scope_selector: str = "body") -> None:
+        """Regression: no literal SVG markup may ever render as text."""
+        raw = js(view, """(() => {
+            const scope = document.querySelector('%s') || document.body;
+            const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+            let bad = 0; let sample = '';
+            while (walker.nextNode()) {
+                const t = (walker.currentNode.nodeValue || '').trim().toLowerCase();
+                if (t && (t.includes('<svg') || t.includes('<path') || /^(svg)+$/.test(t) || /svg.{0,4}svg/.test(t))) {
+                    bad++; if (!sample) sample = t.slice(0, 48);
+                }
+            }
+            return JSON.stringify([bad, sample]);
+        })()""" % scope_selector, timeout_s=8)
+        report = _parse_json(raw)
+        if isinstance(report, list) and len(report) == 2:
+            check(f"no raw svg text nodes ({label})", int(report[0]) == 0, str(report[1]))
+        else:
+            check(f"no raw svg text nodes ({label})", False, "sweep failed")
+
     # ---------------------------------------------------------------- home
     cards = goto("#/home", "document.querySelectorAll('.poster-card, .continueCard').length")
     check("home renders cards from real API data", int(cards or 0) >= 4, f"{cards} cards")
+    raw_svg_sweep("home cards")
     stats = goto("#/home", "document.querySelectorAll('.stat-grid .fact').length")
     check("home renders stats strip", int(stats or 0) >= 4, f"{stats} facts")
 
@@ -262,13 +283,69 @@ def main() -> int:
     names = set(service_names if isinstance(service_names, list) else json.loads(service_names))
     check("services page shows exactly the four services",
           names == {"YouTube", "Telegram", "Spotify", "TV Time"}, str(sorted(names)))
-    hub_buttons = int(js(view, "[...document.querySelectorAll('.service-card button')].filter(b => b.textContent.includes('Browser Hub')).length", timeout_s=3) or 0)
-    check("each service offers 'Open in Browser Hub'", hub_buttons == 4, f"{hub_buttons} buttons")
+    # every card has a primary open action; in this web renderer (no Electron
+    # bridge) the label must say what it does — a browser tab, not the Hub
+    primary_buttons = int(js(view, "document.querySelectorAll('.service-card .actions .btn.primary').length", timeout_s=3) or 0)
+    check("each service offers a primary open action", primary_buttons == 4, f"{primary_buttons} buttons")
     # .note elements include the embedded-Hub hint text; only URL notes count
     urls = js_value(view, "JSON.stringify([...document.querySelectorAll('.service-card .note')].map(n => n.textContent.trim()).filter(txt => txt.startsWith('https://')))")
     url_list = urls if isinstance(urls, list) else (json.loads(urls) if isinstance(urls, str) else [])
     check("service URLs are the official sites",
           len(url_list) == 4 and all(str(u).startswith("https://") for u in url_list), str(url_list)[:100])
+
+    # real brand icons: every card shows an SVG mark, no emoji placeholders
+    brand = js(view, """(() => {
+        const cards = [...document.querySelectorAll('.service-card')];
+        return JSON.stringify({
+          cards: cards.length,
+          withSvg: cards.filter(c => c.querySelector('.svc-icon svg')).length,
+          emojiOnly: cards.filter(c => !c.querySelector('.svc-icon svg') && c.querySelector('.svc-icon')).length,
+        });
+    })()""", timeout_s=6)
+    brand_data = _parse_json(brand)
+    if isinstance(brand_data, dict):
+        check("service cards show real SVG brand icons",
+              brand_data.get("cards") == 4 and brand_data.get("withSvg") == 4,
+              f"svg={brand_data.get('withSvg')}/{brand_data.get('cards')}")
+    else:
+        check("service cards show real SVG brand icons", False, str(brand)[:60])
+
+    # primary buttons do what their label says. In this web renderer (no
+    # Electron bridge) a non-DRM service must open via window.open, and a DRM
+    # service must offer the external path — no dead or mislabeled cards.
+    open_probe = js(view, """(async () => {
+        const opened = [];
+        const orig = window.open;
+        window.open = (url, target) => { opened.push([url, target]); return null; };
+        try {
+          const cards = [...document.querySelectorAll('.service-card')];
+          const results = [];
+          for (const card of cards) {
+            const btn = card.querySelector('.actions .btn.primary');
+            const label = btn ? btn.textContent.trim() : '';
+            if (btn) btn.click();
+            await new Promise(r => setTimeout(r, 60));
+            results.push({ label, clicked: Boolean(btn) });
+          }
+          return JSON.stringify({ opened, results });
+        } finally { window.open = orig; }
+    })()""", promise=True, timeout_s=15)
+    probe = _parse_json(open_probe)
+    if isinstance(probe, dict):
+        opened = probe.get("opened") or []
+        clicked = sum(1 for r in probe.get("results", []) if r.get("clicked"))
+        labels = [r.get("label", "") for r in probe.get("results", [])]
+        honest = all("Browser Hub" not in lbl for lbl in labels)  # web renderer must not promise the hub
+        check("service primary buttons work in the web renderer",
+              clicked == 4 and len(opened) >= 3 and honest,
+              f"clicked={clicked}, opened={len(opened)}, labels={labels}")
+    else:
+        check("service primary buttons work in the web renderer", False, str(open_probe)[:70])
+    # the embedded path routes through the browser page, not cross-page hacks
+    services_src = (ROOT / "electron/src/js/pages/services.js").read_text()
+    check("embedded open routes via /browser?url= (page-owned tabs)",
+          "browser?url=" in services_src and "setTimeout" not in services_src.split("navigate(")[1][:200])
+    raw_svg_sweep("services cards")
 
     # ---------------------------------------------------------------- metadata transparency
     goto(f"#/movie/{movie_id}", "document.querySelectorAll('.badge.outline').length")
@@ -327,6 +404,21 @@ def main() -> int:
     ok = wait_js(view, "document.querySelector('.player video') ? 1 : 0", 20)
     check("player overlay opens", bool(ok))
     if ok:
+        raw_svg_sweep("movie player chrome", ".player")
+        art_raw = js(view, """(() => new Promise(resolve => {
+            const img = document.querySelector('.player-top .artwork');
+            if (!img) { resolve(JSON.stringify([0, 0])); return; }
+            if (img.complete) { resolve(JSON.stringify([1, img.naturalWidth])); return; }
+            img.addEventListener('load', () => resolve(JSON.stringify([1, img.naturalWidth])));
+            img.addEventListener('error', () => resolve(JSON.stringify([1, -1])));
+            setTimeout(() => resolve(JSON.stringify([1, img.naturalWidth])), 4000);
+        }))()""", promise=True, timeout_s=10)
+        art = _parse_json(art_raw)
+        if isinstance(art, list) and len(art) == 2:
+            check("movie player top bar shows real artwork",
+                  art[0] == 1 and int(art[1]) > 2, f"naturalWidth={art[1]}")
+        else:
+            check("movie player top bar shows real artwork", False, str(art_raw)[:60])
         state_raw = js(view, """(async () => {
         await new Promise(r => setTimeout(r, 2600));
         const video = document.querySelector('.player video');
@@ -390,6 +482,43 @@ def main() -> int:
         ep_video = wait_js(view, "document.querySelector('.player video') ? 1 : 0", 20)
         check("episode player opens", bool(ep_video))
         if ep_video:
+            raw_svg_sweep("episode player chrome", ".player")
+            # TV artwork chain: episode still -> season poster -> show poster.
+            # The seeded show has no episode stills, so the top-bar artwork must
+            # arrive through the season/show fallback (the reported bug).
+            ep_art_raw = js(view, """(() => new Promise(resolve => {
+                const img = document.querySelector('.player-top .artwork');
+                if (!img) { resolve(JSON.stringify([0, 0, ''])); return; }
+                const done = () => resolve(JSON.stringify([1, img.naturalWidth, img.getAttribute('src') || '']));
+                if (img.complete) { done(); return; }
+                img.addEventListener('load', done);
+                img.addEventListener('error', () => resolve(JSON.stringify([1, -1, img.getAttribute('src') || ''])));
+                setTimeout(done, 4000);
+            }))()""", promise=True, timeout_s=10)
+            ep_art = _parse_json(ep_art_raw)
+            if isinstance(ep_art, list) and len(ep_art) == 3:
+                check("episode player shows artwork via season/show chain",
+                      ep_art[0] == 1 and int(ep_art[1]) > 2 and "artwork" in str(ep_art[2]),
+                      f"naturalWidth={ep_art[1]} src={str(ep_art[2])[:60]}")
+            else:
+                check("episode player shows artwork via season/show chain", False, str(ep_art_raw)[:60])
+            # queue panel entries carry artwork too (season episodes)
+            js(view, """(() => { const b = document.querySelector('.pbtn[title="Queue"]'); if (b) b.click(); return 1 })()""", timeout_s=3)
+            pump()
+            q_raw = js(view, """(() => {
+                const panel = document.querySelector('.queue-panel');
+                if (!panel) return JSON.stringify([-1, 0]);
+                return JSON.stringify([panel.querySelectorAll('.queue-item').length,
+                                       panel.querySelectorAll('.queue-item img.thumb').length]);
+            })()""", timeout_s=8)
+            q = _parse_json(q_raw)
+            if isinstance(q, list) and len(q) == 2 and int(q[0]) >= 0:
+                check("episode queue entries show artwork thumbs", int(q[0]) >= 2 and int(q[1]) == int(q[0]),
+                      f"{q[1]}/{q[0]} entries with thumbs")
+            else:
+                check("episode queue entries show artwork thumbs", False, str(q_raw)[:60])
+            js(view, """(() => { const b = document.querySelector('.pbtn[title="Queue"]'); if (b) b.click(); return 1 })()""", timeout_s=3)
+            pump()
             js(view, "(() => { document.querySelector('.player-controls .pbtn[title^=Subtitles]').click(); return 1 })()", timeout_s=3)
             pump()
             ep_opts = js(view, "(() => { const menu = document.querySelector('.subtitle-menu'); window.__eo = menu ? menu.querySelectorAll('button').length : -1; if (menu && menu.querySelectorAll('button')[1]) menu.querySelectorAll('button')[1].click(); return 1 })()", timeout_s=3)
@@ -416,6 +545,117 @@ def main() -> int:
             check("player video state", False, "video state promise failed")
     else:
         check("player video state", False, "no video element")
+
+    # ---------------------------------------------------------------- browser settings + vault UI
+    goto("#/settings", "document.querySelectorAll('.provider-card').length")
+    browser_rows = js_value(view, """(() => {
+        const rows = [...document.querySelectorAll('.setting-row')];
+        const find = (t) => rows.find(r => r.textContent.includes(t));
+        return JSON.stringify({
+          cookies: Boolean(find('Allow cookies in Browser Hub')),
+          javascript: Boolean(find('Enable JavaScript')),
+          zoom: Boolean(find('Default zoom for new tabs')),
+          engine: Boolean(find('Search engine')),
+        });
+    })()""")
+    brow = browser_rows if isinstance(browser_rows, dict) else (_parse_json(browser_rows) or {})
+    check("browser settings expose engine/zoom/cookies/JavaScript rows",
+          all(brow.get(k) for k in ("cookies", "javascript", "zoom", "engine")), str(brow)[:80])
+
+    # toggling cookies persists through the real settings API (round-trip)
+    toggle = js(view, """(async () => {
+        const row = [...document.querySelectorAll('.setting-row')].find(r => r.textContent.includes('Allow cookies in Browser Hub'));
+        const input = row && row.querySelector('input[type=checkbox]');
+        if (!input) return JSON.stringify({ ok: false, why: 'no input' });
+        const before = input.checked;
+        input.checked = !before;
+        input.dispatchEvent(new Event('change'));
+        await new Promise(r => setTimeout(r, 700));
+        const saved = await (await fetch('/api/settings')).json();
+        return JSON.stringify({ ok: true, before, saved: saved.values.browser_allow_cookies });
+    })()""", promise=True, timeout_s=15)
+    tstate = _parse_json(toggle)
+    if isinstance(tstate, dict) and tstate.get("ok"):
+        expected = not tstate.get("before")
+        check("cookies toggle persists via the API", tstate.get("saved") == expected,
+              f"before={tstate.get('before')} saved={tstate.get('saved')}")
+        # restore the default (allowed) for other checks
+        js(view, """(async () => {
+            await fetch('/api/settings', {headers:{'Content-Type':'application/json'}, method:'PATCH', body: JSON.stringify({browser_allow_cookies: true})});
+            return 1; })()""", promise=True, timeout_s=10)
+    else:
+        check("cookies toggle persists via the API", False, str(toggle)[:70])
+
+    # The full Hub UI (toolbar, vault panel, …) needs the Electron bridge.
+    # Here we exercise the REAL renderer code against a stub bridge contract
+    # (the real bridge + vault are covered by the node test suites):
+    # add → list → reveal → copy → delete round-trip through the panel UI.
+    vault_flow = js(view, """(async () => {
+        const calls = { reveal: 0, copy: 0 };
+        const entries = [];
+        let nextId = 1;
+        window.jmdb = {
+          hub: {
+            setVisible: async () => {}, setDefaultZoom: async () => {},
+            setCookiesEnabled: async () => {}, setJavaScriptEnabled: async () => {},
+            tabs: async () => [],
+            createTab: async () => 1, activateTab: async () => {}, closeTab: async () => {},
+            back: async () => {}, forward: async () => {}, reload: async () => {}, stop: async () => {},
+            home: async () => {}, find: async () => {}, clearFind: async () => {}, zoom: async () => {},
+            reopenTab: async () => {}, history: async () => ({ items: [] }), clearHistory: async () => {},
+            togglePin: async () => {}, favorites: async () => [], switchTab: async () => {},
+            print: async () => {}, exportPdf: async () => ({ ok: false, cancelled: true }),
+            clearData: async () => ({ ok: true, cleared: {} }), setBounds: async () => {},
+          },
+          downloads: { list: async () => [] },
+          on: () => () => {},
+          passwords: {
+            list: async () => ({ ok: true, backend: 'safeStorage', entries: entries.map(e => ({ ...e })) }),
+            add: async (entry) => { const id = nextId++; entries.push({ id, ...entry }); return { ok: true, id }; },
+            update: async (id, fields) => { const e = entries.find(x => x.id === id); if (e) Object.assign(e, fields); return { ok: true }; },
+            remove: async (id) => { const i = entries.findIndex(x => x.id === id); if (i >= 0) entries.splice(i, 1); return { ok: true }; },
+            reveal: async (id) => { calls.reveal++; const e = entries.find(x => x.id === id); return e ? { ok: true, password: e.password } : { ok: false }; },
+            copy: async (id) => { calls.copy++; const e = entries.find(x => x.id === id); return e ? { ok: true } : { ok: false }; },
+          },
+        };
+        location.hash = '#/browser';
+        await new Promise(r => setTimeout(r, 900));
+        const btn = [...document.querySelectorAll('.nav-btn')].find(b => (b.getAttribute('title')||'').includes('Password vault'));
+        if (!btn) return JSON.stringify({ ok: false, why: 'no vault button' });
+        btn.click();
+        await new Promise(r => setTimeout(r, 500));
+        const panel = document.querySelector('.hub-vault');
+        if (!panel) return JSON.stringify({ ok: false, why: 'no panel' });
+        const backendNote = panel.textContent.includes("operating system's secure storage");
+        // add an entry through the real form
+        const inputs = [...panel.querySelectorAll('.vault-add .input')];
+        const [fDomain, fUser, fPass, fNotes] = inputs;
+        fDomain.value = 'example.com'; fUser.value = 'alice'; fPass.value = 'topsecret'; fNotes.value = 'note';
+        const addBtn = panel.querySelector('.vault-add .btn');
+        addBtn.click();
+        await new Promise(r => setTimeout(r, 500));
+        const row = panel.querySelector('.vault-row');
+        if (!row) return JSON.stringify({ ok: false, why: 'entry row missing after add' });
+        const rowText = row.textContent;
+        const masked = rowText.includes('••••') && !rowText.includes('topsecret');
+        // reveal through the real button
+        const revealBtn = [...row.querySelectorAll('button')].find(b => b.textContent.trim() === 'Show');
+        revealBtn.click();
+        await new Promise(r => setTimeout(r, 400));
+        const shown = panel.textContent.includes('topsecret');
+        return JSON.stringify({ ok: true, backendNote, masked, shown, revealCalls: calls.reveal,
+                                domainShown: rowText.includes('example.com') });
+    })()""", promise=True, timeout_s=30)
+    vf = _parse_json(vault_flow)
+    if isinstance(vf, dict) and vf.get("ok"):
+        check("vault panel: add/mask/reveal flow through the real UI",
+              vf.get("masked") and vf.get("shown") and vf.get("backendNote") and vf.get("revealCalls") == 1,
+              str({k: vf.get(k) for k in ("masked", "shown", "backendNote", "revealCalls")}))
+    else:
+        check("vault panel: add/mask/reveal flow through the real UI", False, str(vault_flow)[:90])
+    # restore the real (bridge-less) web context for the honest-notice check
+    js(view, "(() => { delete window.jmdb; location.hash = '#/browser'; return 1; })()", timeout_s=5)
+    time.sleep(0.8); pump()
 
     # ---------------------------------------------------------------- browser hub page (honest without Electron)
     note = goto("#/browser", "document.querySelector('.error-note') ? document.querySelector('.error-note').textContent.slice(0, 200) : ''")

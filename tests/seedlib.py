@@ -7,9 +7,21 @@ def seed_media_tree(root) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
 
+    def real_png(color):
+        """A tiny valid PNG so renderer tests can assert images truly decode."""
+        from io import BytesIO
+
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (24, 36), color).save(buf, format="PNG")
+        return buf.getvalue()
+
     touch(root / "Movies" / "Night Runner (2024)" / "Night.Runner.2024.1080p.BluRay.x264.mkv")
-    touch(root / "Movies" / "Night Runner (2024)" / "poster.jpg", b"\x89PNG\r\n\x1a\n" + b"p" * 64)
+    touch(root / "Movies" / "Night Runner (2024)" / "poster.jpg", real_png((120, 40, 200)))
     touch(root / "Movies" / "Cosmic Drift" / "Cosmic.Drift.2019.720p.WEBRip.mp4")
+    touch(root / "TV" / "Solar Winds" / "poster.jpg", real_png((30, 90, 160)))
+    touch(root / "TV" / "Solar Winds" / "Season 01" / "season01.jpg", real_png((200, 120, 30)))
     touch(root / "TV" / "Solar Winds" / "Season 01" / "Solar.Winds.S01E01.720p.mkv")
     touch(
         root / "TV" / "Solar Winds" / "Season 01" / "Solar.Winds.S01E01.720p.en.srt",

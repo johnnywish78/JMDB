@@ -45,12 +45,14 @@ def _queue_for(services, media_type: str, media_id: int, context: dict | None):
     repos = services.repos
     entries: list[dict] = []
 
-    def entry(media_type_: str, media_id_: int, title: str, subtitle: str = "") -> dict:
+    def entry(media_type_: str, media_id_: int, title: str, subtitle: str = "",
+              artwork_path: str = "") -> dict:
         return {
             "media_type": media_type_,
             "media_id": media_id_,
             "title": title,
             "subtitle": subtitle,
+            "artwork_path": artwork_path,
         }
 
     context = context or {}
@@ -60,6 +62,14 @@ def _queue_for(services, media_type: str, media_id: int, context: dict | None):
             detail and detail.get("season_id")
         )
         if season_id:
+            # One lookup each for the season/show fallback art, reused by every
+            # queue entry that has no still of its own.
+            season_poster = repos.artwork.local_path("season", int(season_id), "season_poster")
+            show_poster = ""
+            if detail and detail.get("tv_show_id"):
+                show_poster = detail.get("poster_path") or repos.artwork.local_path(
+                    "tv_show", int(detail["tv_show_id"]), "poster"
+                )
             for episode in repos.tv.episodes_for_season(season_id, services.profile.id):
                 if episode.get("file_path"):
                     entries.append(entry(
@@ -67,6 +77,7 @@ def _queue_for(services, media_type: str, media_id: int, context: dict | None):
                         f"S{episode.get('season_number', 0):02d}"
                         f"E{episode.get('episode_number', 0):02d} · "
                         f"{episode.get('show_title', '')}",
+                        artwork_path=episode.get("still_path") or season_poster or show_poster,
                     ))
     elif media_type == "track":
         album_id = context.get("type") == "album" and context.get("id")
@@ -76,13 +87,17 @@ def _queue_for(services, media_type: str, media_id: int, context: dict | None):
                     entries.append(entry(
                         "track", track["id"], track["title"],
                         f"Track {track.get('track_number', 0)}",
+                        artwork_path=track.get("cover_path") or "",
                     ))
     if not entries:
         playable = _catalog_for(services, media_type)
         item = playable.playable(media_id) if playable else None
         if item is None:
             return []
-        entries.append(entry(media_type, media_id, item.title, item.subtitle))
+        entries.append(entry(
+            media_type, media_id, item.title, item.subtitle,
+            artwork_path=getattr(item, "artwork_path", "") or "",
+        ))
     return entries
 
 

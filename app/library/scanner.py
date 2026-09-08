@@ -472,6 +472,11 @@ class LibraryScanner:
                 season_number = season_poster_filename(row["filename"])
                 owner = self._owner_in_directory(row["directory"])
                 if owner is None:
+                    # Standard TV layout: poster.jpg sits in the SHOW root while
+                    # the video files live in season subfolders. Attach it to
+                    # the single show whose episodes live below this directory.
+                    owner = self._show_owning_subtree(row["directory"])
+                if owner is None:
                     continue
                 owner_type, owner_id, _ = owner
                 if season_number is not None and owner_type == "tv_show":
@@ -488,6 +493,32 @@ class LibraryScanner:
             except Exception:
                 logger.exception("local artwork attach failed: %s", row["filename"])
                 counts.errors += 1
+
+    def _show_owning_subtree(self, directory: str):
+        """The single TV show whose episode files live in or below ``directory``.
+
+        Covers both real-world layouts: ``TV/Show/poster.jpg`` (videos in
+        season subfolders) and ``TV/Show/Season 01/season01.jpg`` (videos in
+        the same folder). Returns ("tv_show", id, directory) or None when the
+        directory is not owned by exactly one show.
+        """
+        norm = str(directory).replace("\\", "/").rstrip("/")
+        below = (norm + "/").replace("%", r"\%").replace("_", r"\_")
+        rows = self.db.query(
+            "SELECT DISTINCT e.tv_show_id AS show_id"
+            " FROM media_file_links l"
+            " JOIN media_files f ON f.id=l.media_file_id"
+            " JOIN episodes e ON e.id=l.media_item_id"
+            " WHERE l.media_item_type='episode' AND f.kind='video'"
+            " AND (replace(f.directory, '\\', '/') = ?"
+            "      OR replace(f.directory, '\\', '/') LIKE ? ESCAPE '\\')"
+            " LIMIT 2",
+            # equality gets the raw path; only the LIKE pattern is escaped
+            (norm, below + "%"),
+        )
+        if len(rows) != 1:
+            return None
+        return "tv_show", rows[0]["show_id"], directory
 
     def _owner_in_directory(self, directory: str):
         """The single media item owning video files directly inside a directory."""

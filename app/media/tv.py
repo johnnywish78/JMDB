@@ -136,5 +136,13 @@ class TvCatalog:
             subtitle=f"S{detail['season_number']:02d}E{detail['episode_number']:02d}"
             + (f" · {detail['title']}" if detail.get("title") else ""),
             duration_seconds=float(detail.get("runtime_seconds") or 0),
-            artwork_path=detail.get("still_path") or "",
+            # General artwork chain: episode still -> season poster -> show
+            # poster. Works for any show: locally-scanned libraries often
+            # have no episode stills, but do have season/show posters.
+            artwork_path=(
+                detail.get("still_path")
+                or self.repos.artwork.local_path("season", detail["season_id"], "season_poster")
+                or detail.get("poster_path")
+                or ""
+            ),
         )
