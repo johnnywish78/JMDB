@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: https: http: file:; connect-src http://127.0.0.1:*; font-src 'self';">
+  <title>JMDB — Johnny Media Database</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <!-- Title bar (custom non-client area) -->
+  <div class="titlebar" id="titlebar">
+    <div class="titlebar-drag-region"></div>
+    <div class="titlebar-title">
+      <span class="logo">JMDB</span>
+      <span class="subtitle">Johnny Media Database</span>
+    </div>
+    <div class="titlebar-controls">
+      <button class="win-btn win-min" onclick="jmdb.minimize()" title="Minimize">─</button>
+      <button class="win-btn win-max" onclick="jmdb.maximize()" title="Maximize">□</button>
+      <button class="win-btn win-close" onclick="jmdb.close()" title="Close">✕</button>
+    </div>
+  </div>
+
+  <!-- Main layout -->
+  <div class="app-layout" id="appLayout">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo">J</div>
+        <div class="brand-text">
+          <div class="brand-name">JMDB</div>
+          <div class="brand-tag">Johnny Media Database</div>
+        </div>
+      </div>
+      <nav class="sidebar-nav" id="sidebarNav">
+        <a class="nav-item active" data-page="home" data-icon="home">Home</a>
+        <a class="nav-item" data-page="movies" data-icon="film">Movies</a>
+        <a class="nav-item" data-page="tv" data-icon="tv">TV Shows</a>
+        <a class="nav-item" data-page="music" data-icon="music">Music</a>
+        <a class="nav-item" data-page="people" data-icon="people">People</a>
+        <div class="nav-sep"></div>
+        <a class="nav-item" data-page="favorites" data-icon="heart">Favorites</a>
+        <a class="nav-item" data-page="watchlist" data-icon="list">Watchlist</a>
+        <a class="nav-item" data-page="history" data-icon="clock">History</a>
+        <div class="nav-sep"></div>
+        <a class="nav-item" data-page="search" data-icon="search">Search</a>
+        <a class="nav-item" data-page="recommendations" data-icon="star">For You</a>
+        <a class="nav-item" data-page="statistics" data-icon="chart">Statistics</a>
+        <div class="nav-sep"></div>
+        <a class="nav-item" data-page="services" data-icon="link">Services</a>
+        <a class="nav-item" data-page="browser" data-icon="globe">Browser</a>
+        <a class="nav-item" data-page="settings" data-icon="gear">Settings</a>
+      </nav>
+      <div class="sidebar-footer" id="sidebarFooter">
+        <div class="footer-stats" id="footerStats">Loading…</div>
+      </div>
+    </aside>
+
+    <!-- Content area -->
+    <main class="content" id="content">
+      <div class="content-loading" id="contentLoading">
+        <div class="spinner"></div>
+        <p>Starting JMDB…</p>
+      </div>
+      <div class="content-error hidden" id="contentError">
+        <div class="error-icon">⚠</div>
+        <h3>Backend Unavailable</h3>
+        <p>JMDB couldn't connect to its backend service.</p>
+        <button onclick="jmdb.startBackend()">Restart Backend</button>
+      </div>
+      <div class="content-body hidden" id="contentBody"></div>
+    </main>
+  </div>
+
+  <!-- Top bar (search + theme toggle) -->
+  <div class="topbar" id="topbar">
+    <div class="topbar-search">
+      <span class="search-icon">🔍</span>
+      <input type="text" class="search-input" id="searchInput" placeholder="Search library…" autocomplete="off">
+    </div>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="themeToggle" title="Toggle theme">◐</button>
+      <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Page templates (rendered dynamically) -->
+  <template id="tmpl-home"></template>
+  <template id="tmpl-movies"></template>
+  <template id="tmpl-tv"></template>
+  <template id="tmpl-music"></template>
+  <template id="tmpl-detail"></template>
+  <template id="tmpl-browser"></template>
+  <template id="tmpl-services"></template>
+  <template id="tmpl-settings"></template>
+  <template id="tmpl-player"></template>
+
+  <script src="api/client.js"></script>
+  <script src="state/app.js"></script>
+  <script src="components/cards.js"></script>
+  <script src="pages/home.js"></script>
+  <script src="pages/library.js"></script>
+  <script src="pages/detail.js"></script>
+  <script src="pages/search.js"></script>
+  <script src="pages/people.js"></script>
+  <script src="pages/services.js"></script>
+  <script src="pages/browser.js"></script>
+  <script src="pages/player.js"></script>
+  <script src="pages/settings.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

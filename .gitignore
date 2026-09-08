@@ -1,0 +1,42 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Electron
+node_modules/
+electron/node_modules/
+
+# Runtime / local data
+data/settings.json
+data/database/
+data/logs/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+*.tmp
+
+# Local caches
+.cache/
+data/cache/
+data/tmp/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build output
+dist/
+build/
+
+# Local secrets
+.env
+.env.*
+!.env.example

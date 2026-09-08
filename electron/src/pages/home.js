@@ -1,0 +1,124 @@
+/**
+ * JMDB — Home Page
+ */
+async function renderHome() {
+  const body = document.getElementById('contentBody');
+  body.innerHTML = '';
+
+  try {
+    const data = await API.get('/api/home');
+    let html = '';
+
+    // Hero section (trending)
+    if (data.trending && data.trending.length > 0) {
+      const hero = data.trending[0];
+      const backdrop = await resolveBackdrop(hero);
+      html += `
+        <div class="hero-section" style="position:relative;margin-bottom:28px;border-radius:16px;overflow:hidden;">
+          ${backdrop
+            ? `<div style="height:280px;background:url('${backdrop}') center/cover no-repeat;"></div>`
+            : `<div style="height:280px;background:linear-gradient(135deg,#1a1d2e,#2a2d3e);display:flex;align-items:center;justify-content:center;font-size:64px;opacity:0.2;">🎬</div>`}
+          <div style="position:absolute;inset:0;background:linear-gradient(to right, rgba(11,13,18,0.95) 0%, rgba(11,13,18,0.6) 50%, transparent 100%);"></div>
+          <div style="position:absolute;bottom:24px;left:28px;right:28px;">
+            <div style="font-size:11px;color:var(--accent);font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;">Trending Now</div>
+            <div style="font-size:28px;font-weight:800;color:white;margin-bottom:4px;">${esc(hero.title)}</div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:14px;">${hero.year || ''} · ${hero.genres?.slice(0,3).join(' · ') || ''}</div>
+            <div style="display:flex;gap:10px;">
+              ${hero.file_path ? `<button class="btn btn-accent" onclick="AppState.playMedia(AppState._heroItem)">▶ Play</button>` : ''}
+              <button class="btn" style="background:rgba(255,255,255,0.15);color:white;border-color:rgba(255,255,255,0.2);" onclick="AppState.navigate('detail',{media_id:${hero.id}})">Details</button>
+            </div>
+          </div>
+        </div>`;
+      AppState._heroItem = hero;
+    }
+
+    // Continue Watching
+    if (data.continue_watching && data.continue_watching.length > 0) {
+      html += `<div class="section-header"><span class="section-title">Continue Watching</span></div>`;
+      const cwContainer = document.createElement('div');
+      cwContainer.id = 'cwContainer';
+      body.appendChild(cwContainer);
+      const cwGrid = document.createElement('div');
+      cwGrid.className = 'cards-grid';
+      for (const row of data.continue_watching) {
+        const parsed = parseMediaKey(row.media_key);
+        if (!parsed) continue;
+        const [kind, id] = parsed;
+        const item = kind === 'm'
+          ? (data.favorites?.find(f => f.id === id) || data.trending?.find(t => t.id === id))
+          : null;
+        if (!item) continue;
+        const pct = row.duration_s > 0 ? Math.round(row.position_s / row.duration_s * 100) : 0;
+        cwGrid.appendChild(createMediaCard(item, { progress: pct, onPlay: (it) => playMediaWithResume(it, row.position_s) }));
+      }
+      cwContainer.appendChild(cwGrid);
+    }
+
+    // Recently Added
+    if (data.recently_added && data.recently_added.length > 0) {
+      html += `<div class="section-header"><span class="section-title">Recently Added</span></div>`;
+      const raContainer = document.createElement('div');
+      raContainer.id = 'raContainer';
+      body.appendChild(raContainer);
+    }
+
+    // Favorites
+    if (data.favorites && data.favorites.length > 0) {
+      html += `<div class="section-header"><span class="section-title">Favorites</span></div>`;
+      const favContainer = document.createElement('div');
+      favContainer.id = 'favContainer';
+      body.appendChild(favContainer);
+    }
+
+    // Recommendations
+    if (data.recommendations && data.recommendations.length > 0) {
+      html += `<div class="section-header"><span class="section-title">Recommended For You</span></div>`;
+      const recContainer = document.createElement('div');
+      recContainer.id = 'recContainer';
+      body.appendChild(recContainer);
+    }
+
+    // Render grids after DOM is ready
+    requestAnimationFrame(() => {
+      if (data.recently_added) {
+        const el = document.getElementById('raContainer');
+        if (el) { el.innerHTML = ''; renderCardsGrid(el, data.recently_added.slice(0, 10)); }
+      }
+      if (data.favorites) {
+        const el = document.getElementById('favContainer');
+        if (el) { el.innerHTML = ''; renderCardsGrid(el, data.favorites.slice(0, 10)); }
+      }
+      if (data.recommendations) {
+        const el = document.getElementById('recContainer');
+        if (el) { el.innerHTML = ''; renderCardsGrid(el, data.recommendations); }
+      }
+    });
+
+    body.classList.remove('hidden');
+    document.getElementById('contentLoading').classList.add('hidden');
+    document.getElementById('contentError').classList.add('hidden');
+
+  } catch (e) {
+    console.error('Home render failed:', e);
+    body.innerHTML = `<div class="content-error"><div class="error-icon">⚠</div><h3>Failed to load home</h3><p>${esc(e.message)}</p><button onclick="renderHome()">Retry</button></div>`;
+  }
+}
+
+function parseMediaKey(key) {
+  if (!key) return null;
+  if (key.startsWith('m:')) return ['m', parseInt(key.slice(2))];
+  if (key.startsWith('e:')) return ['e', parseInt(key.slice(2))];
+  return null;
+}
+
+function playMediaWithResume(item, resumePos) {
+  const payload = {
+    media_key: `m:${item.id}`,
+    title: item.title,
+    subtitle: `${item.year || ''} · ${item.runtime_min || 0} min`,
+    file_path: item.file_path,
+    duration_s: (item.runtime_min || 0) * 60,
+    media_id: item.id,
+  };
+  jmdb.playMedia({ ...payload, _resume: resumePos });
+}

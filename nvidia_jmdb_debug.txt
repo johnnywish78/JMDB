@@ -1,0 +1,880 @@
+========== SYSTEM ==========
+Linux johnny-System-Product-Name 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64 GNU/Linux
+
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+NAME="Ubuntu"
+VERSION_ID="26.04"
+VERSION="26.04.1 LTS (Resolute Raccoon)"
+VERSION_CODENAME=resolute
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=resolute
+LOGO=ubuntu-logo
+
+========== PYTHON ==========
+Python 3.14.4
+/home/johnny/Desktop/JMDB/.venv/bin/python
+
+========== PIP ==========
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.7.22
+charset-normalizer==3.5.1
+click==8.5.0
+fastapi==0.141.1
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.8.0
+httpx==0.28.1
+idna==3.19
+iniconfig==2.3.0
+packaging==26.3
+pluggy==1.6.0
+pydantic==2.13.5
+pydantic_core==2.46.5
+Pygments==2.21.0
+PyQt6==6.11.0
+PyQt6-Qt6==6.11.2
+PyQt6-WebEngine==6.11.0
+PyQt6-WebEngine-Qt6==6.11.2
+PyQt6_sip==13.12.0
+pytest==9.1.1
+python-dotenv==1.2.3
+python-mpv==1.0.8
+python-vlc==3.0.21203
+PyYAML==6.0.3
+requests==2.34.2
+ruff==0.16.6
+setuptools==84.0.0
+starlette==1.6.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+urllib3==2.7.0
+uvicorn==0.52.4
+uvloop==0.22.1
+watchfiles==1.2.0
+websockets==17.1
+wheel==0.48.0
+
+========== NODE / NPM ==========
+v22.22.1
+9.2.0
+
+========== ELECTRON ==========
+[143344:0907/014134.136096:FATAL:setuid_sandbox_host.cc(158)] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/johnny/Desktop/JMDB/node_modules/electron/dist/chrome-sandbox is owned by root and has mode 4755.
+/home/johnny/Desktop/JMDB/node_modules/electron/dist/electron exited with signal SIGTRAP
+
+========== ENVIRONMENT ==========
+[143347:0100/000000.180077:ERROR:zygote_linux.cc(672)] write: Broken pipe (32)
+DISPLAY=:0
+PATH=/home/johnny/Desktop/JMDB/.venv/bin:/home/johnny/flutter-3.47.1/bin:/home/johnny/.opencode/bin:/home/johnny/.mimocode/bin:/usr/lib/jvm/java-1.25.0-openjdk-amd64/bin:/home/johnny/.local/bin:/home/johnny/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/root/.local/share/pnpm/bin:/home/johnny/.pnpm-global/bin:/home/johnny/.pnpm-global/bin:/home/johnny/.pnpm-global/bin
+VIRTUAL_ENV=/home/johnny/Desktop/JMDB/.venv
+
+========== NVIDIA ==========
+Command 'nvidia-smi' not found, but can be installed with:
+sudo apt install nvidia-utils-580         # version 580.159.03-0ubuntu0.26.04.1, or
+sudo apt install nvidia-utils-580-server  # version 580.159.03-0ubuntu0.26.04.1
+sudo apt install nvidia-utils-595         # version 595.71.05-0ubuntu0.26.04.1
+sudo apt install nvidia-utils-595-server  # version 595.71.05-0ubuntu0.26.04.1
+
+========== GPU / DRIVER ==========
+01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GF119 [GeForce GT 610] [10de:104a] (rev a1)
+	Subsystem: ASUSTeK Computer Inc. Device [1043:8496]
+	Kernel driver in use: nouveau
+	Kernel modules: nvidiafb, nouveau
+
+========== PROJECT TREE ==========
+app/api/__init__.py
+app/api/__pycache__/__init__.cpython-314.pyc
+app/api/__pycache__/serve.cpython-314.pyc
+app/api/__pycache__/server.cpython-314.pyc
+app/api/serve.py
+app/api/server.py
+app/bootstrap/application.py
+app/bootstrap/dependencies.py
+app/bootstrap/__init__.py
+app/bootstrap/__pycache__/application.cpython-314.pyc
+app/bootstrap/__pycache__/dependencies.cpython-314.pyc
+app/bootstrap/__pycache__/__init__.cpython-314.pyc
+app/bootstrap/__pycache__/startup.cpython-314.pyc
+app/bootstrap/startup.py
+app/browser/engine.py
+app/browser/__init__.py
+app/browser/__pycache__/engine.cpython-314.pyc
+app/browser/__pycache__/__init__.cpython-314.pyc
+app/config/__init__.py
+app/config/paths.py
+app/config/__pycache__/__init__.cpython-314.pyc
+app/config/__pycache__/paths.cpython-314.pyc
+app/config/__pycache__/secrets.cpython-314.pyc
+app/config/__pycache__/settings.cpython-314.pyc
+app/config/secrets.py
+app/config/settings.py
+app/database/connection.py
+app/database/__init__.py
+app/database/migrations.py
+app/database/__pycache__/connection.cpython-314.pyc
+app/database/__pycache__/__init__.cpython-314.pyc
+app/database/__pycache__/migrations.cpython-314.pyc
+app/database/__pycache__/repositories.cpython-314.pyc
+app/database/__pycache__/schema.cpython-314.pyc
+app/database/repositories.py
+app/database/schema.py
+app/domain/enums.py
+app/domain/events.py
+app/domain/__init__.py
+app/domain/models.py
+app/domain/__pycache__/enums.cpython-314.pyc
+app/domain/__pycache__/events.cpython-314.pyc
+app/domain/__pycache__/__init__.cpython-314.pyc
+app/domain/__pycache__/models.cpython-314.pyc
+app/domain/__pycache__/value_objects.cpython-314.pyc
+app/domain/value_objects.py
+app/__init__.py
+app/library/filesystem.py
+app/library/indexer.py
+app/library/__init__.py
+app/library/media_detector.py
+app/library/__pycache__/filesystem.cpython-314.pyc
+app/library/__pycache__/indexer.cpython-314.pyc
+app/library/__pycache__/__init__.cpython-314.pyc
+app/library/__pycache__/media_detector.cpython-314.pyc
+app/library/__pycache__/scanner.cpython-314.pyc
+app/library/scanner.py
+app/metadata/artwork.py
+app/metadata/cache.py
+app/metadata/__init__.py
+app/metadata/manager.py
+app/metadata/providers.py
+app/metadata/__pycache__/artwork.cpython-314.pyc
+app/metadata/__pycache__/cache.cpython-314.pyc
+app/metadata/__pycache__/__init__.cpython-314.pyc
+app/metadata/__pycache__/manager.cpython-314.pyc
+app/metadata/__pycache__/providers.cpython-314.pyc
+app/playback/backends/base.py
+app/playback/backends/builtin.py
+app/playback/backends/__init__.py
+app/playback/backends/qt_backend.py
+app/playback/__init__.py
+app/playback/__pycache__/__init__.cpython-314.pyc
+app/playback/__pycache__/service.cpython-314.pyc
+app/playback/service.py
+app/__pycache__/__init__.cpython-314.pyc
+app/recommendations/engine.py
+app/recommendations/__init__.py
+app/recommendations/__pycache__/engine.cpython-314.pyc
+app/recommendations/__pycache__/__init__.cpython-314.pyc
+app/search/engine.py
+app/search/__init__.py
+app/search/__pycache__/engine.cpython-314.pyc
+app/search/__pycache__/__init__.cpython-314.pyc
+app/services/__init__.py
+app/services/__pycache__/__init__.cpython-314.pyc
+app/services/__pycache__/service_manager.cpython-314.pyc
+app/services/service_manager.py
+app/statistics/__init__.py
+app/statistics/__pycache__/__init__.cpython-314.pyc
+app/statistics/__pycache__/service.cpython-314.pyc
+app/statistics/service.py
+electron/main.js
+electron/package.json
+electron/preload.js
+electron/src/api/client.js
+electron/src/components/cards.js
+electron/src/css/app.css
+electron/src/index.html
+electron/src/main.js
+electron/src/pages/browser.js
+electron/src/pages/detail.js
+electron/src/pages/home.js
+electron/src/pages/library.js
+electron/src/pages/people.js
+electron/src/pages/player.js
+electron/src/pages/search.js
+electron/src/pages/services.js
+electron/src/pages/settings.js
+electron/src/state/app.js
+
+========== GIT ==========
+fatal: not a git repository (or any of the parent directories): .git
+fatal: not a git repository (or any of the parent directories): .git
+
+========== RUN.PY ==========
+#!/usr/bin/env python3
+"""JMDB — Johnny Media Database. Application entry point.
+
+Usage:
+    python run.py            # Launch JMDB Desktop (Electron)
+    python run.py --theme dark
+    python run.py --dev      # Development mode with Electron + backend separately
+    python run.py --backend  # Start only the Python backend (for debugging)
+    python run.py --reset-db # Drop local database before start
+
+Architecture:
+    The primary desktop UI is Electron. The Python backend (FastAPI) runs
+    as a local subprocess and is managed by the Electron main process.
+    Legacy PyQt6 remains available via `python run.py --legacy`.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="jmdb", description="Johnny Media Database")
+    parser.add_argument("--theme", choices=["dark", "light"], default=None)
+    parser.add_argument("--reset-db", action="store_true", help="delete the local database before start")
+    parser.add_argument("--dev", action="store_true", help="development mode: start backend + electron separately")
+    parser.add_argument("--backend", action="store_true", help="start only the Python FastAPI backend")
+    parser.add_argument("--legacy", action="store_true", help="use legacy PyQt6 UI instead of Electron")
+    args = parser.parse_args()
+
+    if args.reset_db:
+        from app.config.paths import AppPaths
+        db_path = AppPaths().db_path
+        if db_path.exists():
+            db_path.unlink()
+            print(f"[jmdb] removed {db_path}")
+
+    # Legacy mode: PyQt6
+    if args.legacy:
+        return _run_legacy(args.theme)
+
+    # Backend-only mode
+    if args.backend:
+        return _run_backend()
+
+    # Default: launch Electron (which manages the backend)
+    return _run_electron(args.dev, args.theme)
+
+
+def _run_backend() -> int:
+    """Start only the Python FastAPI backend server."""
+    from app.api.serve import main as serve_main
+    return serve_main()
+
+
+def _run_electron(dev: bool = False, theme: str | None = None) -> int:
+    """Launch Electron with the project's main process."""
+    electron_path = ROOT / "node_modules" / ".bin" / "electron"
+    if not electron_path.exists():
+        print(f"[jmdb] Electron not found at {electron_path}", file=sys.stderr)
+        print("Run: npm install --prefix electron", file=sys.stderr)
+        return 1
+
+    env = os.environ.copy()
+    if theme:
+        env["JMDB_THEME"] = theme
+
+    cmd = [str(electron_path), str(ROOT / "electron" / "main.js")]
+    if dev:
+        cmd.append("--dev")
+
+    print("[jmdb] Starting Electron frontend…", flush=True)
+    result = subprocess.run(cmd, env=env, cwd=str(ROOT), check=False)
+    return result.returncode
+
+
+def _run_legacy(theme: str | None = None) -> int:
+    """Fall back to the legacy PyQt6 startup for compatibility."""
+    from app.bootstrap.startup import run
+    return run(theme_override=theme)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+========== ELECTRON MAIN ==========
+/**
+ * JMDB Electron — Main Process
+ *
+ * Starts the Python FastAPI backend, launches the renderer window,
+ * manages browser tabs via WebContentsView, and handles IPC.
+ */
+const { app, BrowserWindow, ipcMain, shell, session, Menu, dialog } = require('electron');
+const path = require('path');
+const { spawn, child_process } = require('child_process');
+const http = require('http');
+const fs = require('fs');
+
+let mainWindow = null;
+let backendProcess = null;
+let apiUrl = 'http://127.0.0.1:18932';
+let apiToken = '';
+let isDev = process.argv.includes('--dev');
+
+// ── backend management ───────────────────────────────────────────────────────
+
+function startBackend() {
+  return new Promise((resolve, reject) => {
+    const venvPython = path.join(__dirname, '..', '.venv', 'bin', 'python');
+    const mainPy = path.join(app.getAppPath(), 'app', 'api', 'serve.py');
+
+    // Check if serve.py exists, otherwise use server.py directly
+    const script = fs.existsSync(mainPy) ? mainPy : null;
+
+    if (!script) {
+      // Fallback: start uvicorn directly on server module
+      const args = [
+        '-m', 'uvicorn', 'app.api.server:init_app',
+        '--host', '127.0.0.1',
+        '--port', '18932',
+        '--log-level', isDev ? 'debug' : 'warning'
+      ];
+      backendProcess = spawn(venvPython, args, {
+        cwd: path.join(__dirname, '..'),
+        stdio: 'pipe'
+      });
+    } else {
+      backendProcess = spawn(venvPython, [script], {
+        cwd: path.join(__dirname, '..'),
+        stdio: 'pipe'
+      });
+    }
+
+    backendProcess.stderr.on('data', (data) => {
+      if (isDev) console.error('[backend]', data.toString());
+    });
+    backendProcess.stdout.on('data', (data) => {
+      const line = data.toString();
+      if (isDev) console.log('[backend]', line.trim());
+      // Extract token from startup log
+      const m = line.match(/token:\s*(\w+)/);
+      if (m) apiToken = m[1];
+    });
+
+    backendProcess.on('error', (err) => {
+      reject(err);
+    });
+
+    // Wait for backend to be ready
+    const checkReady = () => {
+      http.get(apiUrl + '/api/health', (res) => {
+        if (res.statusCode === 200) {
+          let body = '';
+          res.on('data', (chunk) => { body += chunk; });
+          res.on('end', () => {
+            try {
+              const info = JSON.parse(body);
+              resolve(info);
+            } catch(e) { resolve({}); }
+          });
+        } else {
+          setTimeout(checkReady, 500);
+        }
+      }).on('error', () => {
+        if (Date.now() - startTime > 15000) {
+          reject(new Error('Backend failed to start'));
+        }
+        setTimeout(checkReady, 500);
+      });
+    };
+    const startTime = Date.now();
+    checkReady();
+  });
+}
+
+function stopBackend() {
+  if (backendProcess) {
+    backendProcess.kill('SIGTERM');
+    backendProcess = null;
+  }
+}
+
+// ── window creation ──────────────────────────────────────────────────────────
+
+function createMainWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 900,
+    minHeight: 600,
+    frame: false,
+    backgroundColor: '#0b0d12',
+    icon: path.join(app.getAppPath(), 'electron', 'src', 'assets', 'jmdb.ico'),
+    webPreferences: {
+      preload: path.join(app.getAppPath(), 'electron', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    }
+  });
+
+  mainWindow.setMenuBarVisibility(false);
+
+  if (isDev) {
+    mainWindow.webContents.openDevTools();
+  }
+
+  mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+
+  mainWindow.on('closed', () => { mainWindow = null; });
+}
+
+// ── IPC handlers ─────────────────────────────────────────────────────────────
+
+function setupIPCHandlers() {
+  // Window controls
+  ipcMain.on('window:minimize', () => mainWindow?.minimize());
+  ipcMain.on('window:maximize', () => {
+    if (mainWindow?.isMaximized()) mainWindow.unmaximize();
+    else mainWindow?.maximize();
+  });
+  ipcMain.on('window:close', () => mainWindow?.close());
+
+  // External URL handling
+  ipcMain.handle('shell:openExternal', async (_e, url) => {
+    return shell.openExternal(url);
+  });
+
+  // File dialog
+  ipcMain.handle('dialog:openFile', async (_e, opts) => {
+    const result = await dialog.showOpenDialog(mainWindow, opts);
+    return result;
+  });
+
+  ipcMain.handle('dialog:openDirectory', async (_e, opts) => {
+    const result = await dialog.showOpenDialog(mainWindow, { ...opts, properties: ['openDirectory'] });
+    return result;
+  });
+
+  // Backend control
+  ipcMain.handle('backend:start', async () => {
+    try {
+      const info = await startBackend();
+      return { ok: true, info };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('backend:stop', () => {
+    stopBackend();
+    return { ok: true };
+  });
+
+  // API proxy (renderer calls this to reach the backend)
+  ipcMain.handle('api:request', async (event, method, endpoint, body) => {
+    try {
+      const url = new URL(endpoint, apiUrl);
+      const headers = { 'Content-Type': 'application/json', 'X-JMDB-Token': apiToken };
+      const options = {
+        method,
+        headers,
+        timeout: 10000,
+      };
+      if (body && ['POST', 'PUT', 'PATCH'].includes(method)) {
+        options.body = JSON.stringify(body);
+      }
+      const resp = await fetch(url.toString(), options);
+      const data = await resp.json();
+      return { ok: resp.ok, status: resp.status, data };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+}
+
+// ── app lifecycle ────────────────────────────────────────────────────────────
+
+app.whenReady().then(async () => {
+  setupIPCHandlers();
+  try {
+    await startBackend();
+  } catch (err) {
+    console.error('[jmdb] Backend failed to start:', err);
+    dialog.showErrorBox('JMDB Backend Error', err.message);
+    app.quit();
+    return;
+  }
+  createMainWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  stopBackend();
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  stopBackend();
+});
+
+========== ELECTRON PACKAGE ==========
+{
+  "name": "jmdb",
+  "version": "1.1.0",
+  "description": "JMDB — Johnny Media Database",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "keywords": ["media", "database", "movies", "tv"],
+  "author": "Johnny",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
+
+========== BACKEND SERVE ==========
+"""Wrapper to start the JMDB FastAPI backend."""
+from __future__ import annotations
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.api.server import app, _auth_token  # noqa: E402
+import uvicorn  # noqa: E402
+
+
+def main() -> int:
+    print(f"JMDB API token: {_auth_token[:8]}…", flush=True)
+    uvicorn.run(app, host="127.0.0.1", port=18932, log_level="warning")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+========== BACKEND SERVER ==========
+"""JMDB FastAPI — local HTTP API.
+
+Binds to 127.0.0.1 only. Serves the Electron renderer.
+All routes delegate to the existing Container / repositories.
+"""
+from __future__ import annotations
+
+import logging
+import time
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+
+log = logging.getLogger("jmdb.api")
+
+# ── module-level state ────────────────────────────────────────────────────────
+_container = None
+_auth_token = ""
+app: FastAPI | None = None
+
+
+def _get_container():
+    global _container
+    if _container is None:
+        from app.bootstrap.dependencies import Container
+        _container = Container()
+    return _container
+
+
+def _build_app(port: int = 18932) -> FastAPI:
+    """Build and return the FastAPI app (called once at startup)."""
+    global _auth_token, app
+    if app is not None:
+        return app
+    _auth_token = uuid.uuid4().hex[:16]
+    log.info("JMDB API token: %s…", _auth_token[:8])
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):  # noqa: F811
+        log.info("JMDB API starting on 127.0.0.1:%d", port)
+        yield
+        log.info("JMDB API shutting down")
+        if _container is not None:
+            _container.close()
+
+    fa = FastAPI(title="JMDB", version="1.1.0", lifespan=lifespan)
+    fa.add_middleware(
+        CORSMiddleware,
+        allow_origins=[f"http://127.0.0.1:{port}", "electron://JMDB"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app = fa
+    return fa
+
+
+def init_app(port: int = 18932) -> tuple[FastAPI, str]:
+    """Called by serve.py and tests. Returns (app, token)."""
+    return _build_app(port), _auth_token
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ROUTES
+# ══════════════════════════════════════════════════════════════════════════════
+
+_health_app = _build_app()
+
+
+@_health_app.get("/api/health")
+async def health():
+    return {"status": "ok", "token_hint": f"{_auth_token[:8]}…"}
+
+
+@_health_app.get("/api/app/info")
+async def app_info():
+    c = _get_container()
+    return {
+        "name": "JMDB",
+        "version": "1.1.0",
+        "movies": c.media_repo.count("movie"),
+        "shows": c.media_repo.count("show"),
+        "music": c.media_repo.count("music"),
+        "schema_version": c.schema_version,
+    }
+
+
+# ── settings ──────────────────────────────────────────────────────────────────
+
+@_health_app.get("/api/settings")
+async def get_settings():
+    c = _get_container()
+    s = c.settings
+    data = dict(s._data)
+    for k in ("tmdb_api_key", "omdb_api_key"):
+        v = data.get(k, "")
+        data[k] = f"{v[:4]}…{v[-4:]}" if len(v) > 8 else ("*" * min(8, len(v)) if v else "")
+    return data
+
+
+@_health_app.patch("/api/settings")
+async def update_settings(body: dict):
+    c = _get_container()
+    for key, val in body.items():
+        c.settings.set(key, val)
+    return {"ok": True}
+
+
+# ── library ───────────────────────────────────────────────────────────────────
+
+@_health_app.get("/api/library")
+async def get_library(kind: str = Query("movie")):
+    c = _get_container()
+    items = c.media_repo.list(kind, sort="rating")
+    return {"kind": kind, "total": len(items), "items": items}
+
+
+@_health_app.get("/api/library/movies")
+async def get_movies(sort: str = "rating", genre: str | None = None, limit: int | None = None):
+    c = _get_container()
+    items = c.media_repo.list("movie", sort=sort, genre=genre, limit=limit)
+    return {"total": len(items), "items": items}
+
+
+@_health_app.get("/api/library/tv")
+async def get_tv(sort: str = "rating", limit: int | None = None):
+    c = _get_container()
+    items = c.media_repo.list("show", sort=sort, limit=limit)
+    return {"total": len(items), "items": items}
+
+
+@_health_app.get("/api/library/music")
+async def get_music(sort: str = "title", limit: int | None = None):
+    c = _get_container()
+    items = c.media_repo.list("music", sort=sort, limit=limit)
+    return {"total": len(items), "items": items}
+
+
+# ── media detail ──────────────────────────────────────────────────────────────
+
+@_health_app.get("/api/media/{media_id}")
+async def get_media(media_id: int):
+    c = _get_container()
+    item = c.media_repo.get(media_id)
+    if not item:
+        raise HTTPException(404, "Media not found")
+    return item
+
+
+@_health_app.get("/api/movies/{media_id}")
+async def get_movie(media_id: int):
+    return await get_media(media_id)
+
+
+@_health_app.get("/api/shows/{media_id}")
+async def get_show(media_id: int):
+    c = _get_container()
+    item = c.media_repo.get(media_id)
+    if not item or item["kind"] != "show":
+        raise HTTPException(404, "Show not found")
+    episodes = c.episode_repo.for_show(media_id)
+    return {**item, "episodes": episodes}
+
+
+@_health_app.get("/api/episodes/{episode_id}")
+async def get_episode(episode_id: int):
+    c = _get_container()
+    ep = c.episode_repo.get(episode_id)
+    if not ep:
+        raise HTTPException(404, "Episode not found")
+    return ep
+
+
+# ── people ────────────────────────────────────────────────────────────────────
+
+@_health_app.get("/api/people")
+async def get_people():
+    c = _get_container()
+    return {"people": c.people_repo.all_people()}
+
+
+@_health_app.get("/api/people/{name}")
+async def get_person(name: str):
+    c = _get_container()
+    items = c.people_repo.items_for(name)
+    return {"name": name, "items": items}
+
+
+# ── search ────────────────────────────────────────────────────────────────────
+
+@_health_app.get("/api/search")
+async def search(q: str = "", kind: str | None = None, limit: int = 50):
+    c = _get_container()
+    results = c.search.search(q, limit=limit)
+    if kind:
+        results = [r for r in results if r.get("kind") == kind]
+    return {"query": q, "total": len(results), "results": results}
+
+
+# ── home ──────────────────────────────────────────────────────────────────────
+
+@_health_app.get("/api/home")
+async def get_home():
+    c = _get_container()
+    trending = c.media_repo.list("movie", sort="rating", limit=10)
+    recently_added = (
+        c.media_repo.list("movie", sort="added", limit=6)
+        + c.media_repo.list("show", sort="added", limit=4)
+    )
+    continue_watching = c.progress_repo.in_progress()
+    favorites_ids = c.state_repo.favorites()
+    favorites = c.media_repo.by_ids(sorted(favorites_ids))
+    recommendations = c.reco.for_you(10)
+    return {
+        "trending": trending,
+        "recently_added": recently_added,
+        "continue_watching": continue_watching,
+        "favorites": favorites,
+        "recommendations": recommendations,
+    }
+
+
+# ── favorites ─────────────────────────────────────────────────────────────────
+
+@_health_app.get("/api/favorites")
+async def getFavorites():
+    c = _get_container()
+    ids = c.state_repo.favorites()
+    items = c.media_repo.by_ids(sorted(ids))
+    return {"ids": sorted(ids), "items": items}
+
+
+@_health_app.post("/api/favorites/{media_id}")
+async def add_favorite(media_id: int):
+    c = _get_container()
+    state = c.state_repo.toggle_favorite(media_id)
+    return {"favorited": state}
+
+
+@_health_app.delete("/api/favorites/{media_id}")
+async def remove_favorite(media_id: int):
+    c = _get_container()
+    c.state_repo.toggle_favorite(media_id)
+    return {"ok": True}
+
+
+# ── watchlist ─────────────────────────────────────────────────────────────────
+
+@_health_app.get("/api/watchlist")
+async def get_watchlist():
+    c = _get_container()
+    ids = c.state_repo.watchlist()
+    items = c.media_repo.by_ids(sorted(ids))
+    return {"ids": sorted(ids), "items": items}
+
+
+@_health_app.post("/api/watchlist/{media_id}")
+async def add_watchlist(media_id: int):
+    c = _get_container()
+    state = c.state_repo.toggle_watchlist(media_id)
+    return {"in_watchlist": state}
+
+
+@_health_app.delete("/api/watchlist/{media_id}")
+async def remove_watchlist(media_id: int):
+    c = _get_container()
+    c.state_repo.toggle_watchlist(media_id)
+    return {"ok": True}
+
+
+# ── history ───────────────────────────────────────────────────────────────────
+
+@_health_app.get("/api/history")
+async def get_history(limit: int = 100):
+    c = _get_container()
+    return {"entries": c.history_repo.recent(limit)}
+
+
+# ── continue watching ─────────────────────────────────────────────────────────
+
+@_health_app.get("/api/continue-watching")
+async def continue_watching(min_seconds: int = 30):
+    c = _get_container()
+    rows = c.progress_repo.in_progress(min_seconds)
+    return {"items": rows}
+
+
+# ── recommendations ───────────────────────────────────────────────────────────
+
+@_health_app.get("/api/recommendations")
+async def recommendations(limit: int = 18):
+    c = _get_container()
+    items = c.reco.for_you(limit)
+    return {"items": items}
+
+
+# ── statistics ────────────────────────────────────────────────────────────────
+
+@_health_app.get("/api/statistics")
+async def statistics():
+    c = _get_container()
+    return c.stats.overview()
+
+
+# ── scanner ───────────────────────────────────────────────────────────────────
+
+_scan_status: dict = {"running": False, "summary": None, "current_file": ""}
+
+
+@_health_app.get("/api/scan/status")
+async def scan_status():
+    return _scan_status
+
+
+@_health_app.post("/api/scan")
+async def start_scan(folders: list[str] | None = None, enrich: bool = True):
+    if _scan_status["running"]:

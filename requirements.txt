@@ -1,0 +1,12 @@
+# ── required ───────────────────────────────────────────────
+PyQt6>=6.5
+requests>=2.28
+
+# ── optional playback backends (install what matches your system) ──
+# python-vlc>=3.0        # needs system libvlc
+# python-mpv>=1.0        # needs system libmpv (best quality on Linux)
+# PyQt6-WebEngine>=6.5   # embedded browser tab
+
+# ── dev ────────────────────────────────────────────────────
+# pytest>=7.4
+# ruff>=0.1

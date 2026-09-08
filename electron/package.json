@@ -1,0 +1,21 @@
+{
+  "name": "jmdb",
+  "version": "1.1.0",
+  "description": "JMDB — Johnny Media Database",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "keywords": [
+    "media",
+    "database",
+    "movies",
+    "tv"
+  ],
+  "author": "Johnny",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
