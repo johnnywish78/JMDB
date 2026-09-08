@@ -19,7 +19,19 @@ async function renderDetail(params) {
       episodes = data.episodes || [];
     } else {
       item = await API.get(`/api/media/${mediaId}`);
+      if (item && item.kind === 'show') {
+        const data = await API.get(`/api/shows/${mediaId}`);
+        episodes = data.episodes || [];
+      }
     }
+
+    // Favorite / watchlist state
+    let isFav = false, inWatchlist = false;
+    try {
+      const [fav, wl] = await Promise.all([API.get('/api/favorites'), API.get('/api/watchlist')]);
+      isFav = (fav.ids || []).includes(item.id);
+      inWatchlist = (wl.ids || []).includes(item.id);
+    } catch {}
 
     if (!item) {
       body.innerHTML = '<div class="content-error"><h3>Not found</h3></div>';
@@ -30,8 +42,6 @@ async function renderDetail(params) {
     const posterUrl = await resolvePoster(item);
     const isMovie = item.kind === 'movie';
     const isShow = item.kind === 'show';
-    const isFav = false; // Would need favorites endpoint check
-    const watchedIds = new Set(); // Would need watched endpoint
 
     let html = `
       <div style="margin:-20px -24px 20px;">
@@ -65,9 +75,9 @@ async function renderDetail(params) {
               <div class="detail-actions">
                 ${item.file_path
                   ? `<button class="btn btn-accent" onclick="playFromDetail(${item.id})">▶ Play</button>`
-                  : `<button class="btn" disabled>No media file linked</button>`}
-                <button class="btn" onclick="toggleFavorite(${item.id})">♡ Favorite</button>
-                <button class="btn" onclick="toggleWatchlist(${item.id})">+ Watchlist</button>
+                  : (isShow ? `<button class="btn" style="opacity:0.6" disabled>Select an episode below</button>` : `<button class="btn" disabled>No media file linked</button>`)}
+                <button class="btn" id="favBtn" onclick="toggleFavorite(${item.id})">${isFav ? '♥ Favorited' : '♡ Favorite'}</button>
+                <button class="btn" id="wlBtn" onclick="toggleWatchlist(${item.id})">${inWatchlist ? '✓ In Watchlist' : '+ Watchlist'}</button>
                 <button class="btn" onclick="reEnrich(${item.id})">↻ Re-enrich</button>
               </div>
               <div class="detail-stats">
@@ -147,6 +157,8 @@ function playEpisode(showId, episodeId) {
 async function toggleFavorite(mediaId) {
   try {
     const r = await API.post(`/api/favorites/${mediaId}`, {});
+    const btn = document.getElementById('favBtn');
+    if (btn) btn.textContent = r.favorited ? '♥ Favorited' : '♡ Favorite';
     AppState.toast(r.favorited ? 'Added to favorites' : 'Removed from favorites', 'success');
   } catch (e) { AppState.toast(e.message, 'error'); }
 }
@@ -154,6 +166,8 @@ async function toggleFavorite(mediaId) {
 async function toggleWatchlist(mediaId) {
   try {
     const r = await API.post(`/api/watchlist/${mediaId}`, {});
+    const btn = document.getElementById('wlBtn');
+    if (btn) btn.textContent = r.in_watchlist ? '✓ In Watchlist' : '+ Watchlist';
     AppState.toast(r.in_watchlist ? 'Added to watchlist' : 'Removed from watchlist', 'success');
   } catch (e) { AppState.toast(e.message, 'error'); }
 }

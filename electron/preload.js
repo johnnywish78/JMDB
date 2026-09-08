@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('jmdb', {
 
   // Play media
   playMedia: (payload) => ipcRenderer.send('play:payload', payload),
+  onPlay: (cb) => ipcRenderer.on('play:from-main', (_e, payload) => cb(payload)),
 
   // Playback controls
   playbackStart: (payload) => ipcRenderer.invoke('api:request', 'POST', '/api/playback/start', payload),

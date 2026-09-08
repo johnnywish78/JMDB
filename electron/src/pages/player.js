@@ -56,7 +56,7 @@ async function renderPlayer(params) {
   body.innerHTML = `
     <div class="player-container" id="playerContainer">
       <div class="player-video" id="playerVideo">
-        <video id="playerVideoEl" src="${esc(payload.file_path)}" playsinline></video>
+        <video id="playerVideoEl" src="${esc(fileUrl(payload.file_path))}" playsinline></video>
         <div class="player-overlay" id="playerOverlay">
           <div class="player-top-bar">
             <button class="player-back" onclick="playerClose()">◀ Back</button>
@@ -152,12 +152,24 @@ async function renderPlayer(params) {
 
   _videoEl.addEventListener('ended', async () => {
     stopProgressTimer();
-    await jmdb.playbackFinish();
-    playerClose();
+    let next = null;
+    try { const r = await jmdb.playbackFinish(); next = r?.data?.next_payload || null; } catch {}
+    if (next && next.file_path) {
+      renderPlayer({ payload: next });   // autoplay next episode
+    } else {
+      playerClose();
+    }
   });
 
   _videoEl.addEventListener('error', () => {
-    AppState.toast('Playback error — file may be unavailable or codec not supported.', 'error');
+    const err = _videoEl.error;
+    const code = err ? err.code : 0;
+    let msg = 'Playback error.';
+    if (code === 4) msg = 'This file\'s codec/container isn\'t supported by the built-in player (common with HEVC/10-bit MKV).';
+    else if (code === 2) msg = 'Network error while loading media.';
+    else if (code === 3) msg = 'Decoding failed — the codec may be unsupported.';
+    else if (code === 1) msg = 'Playback was aborted.';
+    showPlayerError(msg, payload.file_path);
   });
 
   // Start playback
@@ -294,6 +306,23 @@ function playerClose() {
   // Go back to previous page
   const prev = AppState._prevPage || 'home';
   AppState.navigate(prev);
+}
+
+function showPlayerError(msg, filePath) {
+  AppState.toast(msg, 'error');
+  const overlay = document.getElementById('playerOverlay');
+  if (!overlay) return;
+  const banner = document.createElement('div');
+  banner.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);padding:20px 28px;border-radius:12px;display:flex;flex-direction:column;gap:12px;align-items:center;max-width:420px;text-align:center;';
+  banner.innerHTML = `<span style="color:white;font-size:14px;">${esc(msg)}</span>
+    <div style="display:flex;gap:10px;">
+      ${filePath ? `<button class="btn btn-sm btn-accent" id="pExtBtn">Open externally</button>` : ''}
+      <button class="btn btn-sm" id="pCloseBtn">Close</button>
+    </div>`;
+  overlay.appendChild(banner);
+  const ext = banner.querySelector('#pExtBtn');
+  if (ext) ext.onclick = () => jmdb.openExternal(fileUrl(filePath));
+  banner.querySelector('#pCloseBtn').onclick = () => playerClose();
 }
 
 function clock(seconds) {

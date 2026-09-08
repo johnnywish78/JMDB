@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: https: http: file:; connect-src http://127.0.0.1:*; font-src 'self';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: https: http: file:; media-src 'self' file: blob: http://127.0.0.1:*; connect-src http://127.0.0.1:* ws:; font-src 'self';">
   <title>JMDB — Johnny Media Database</title>
   <link rel="stylesheet" href="css/app.css">
 </head>
@@ -12,6 +12,7 @@
   <div class="titlebar" id="titlebar">
     <div class="titlebar-drag-region"></div>
     <div class="titlebar-title">
+      <img class="titlebar-logo" src="../../assets/branding/jmdb-logo.jpeg" alt="JMDB">
       <span class="logo">JMDB</span>
       <span class="subtitle">Johnny Media Database</span>
     </div>
@@ -27,7 +28,7 @@
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
-        <div class="brand-logo">J</div>
+        <img class="brand-logo" src="../../assets/branding/jmdb-logo.jpeg" alt="JMDB">
         <div class="brand-text">
           <div class="brand-name">JMDB</div>
           <div class="brand-tag">Johnny Media Database</div>
@@ -38,6 +39,7 @@
         <a class="nav-item" data-page="movies" data-icon="film">Movies</a>
         <a class="nav-item" data-page="tv" data-icon="tv">TV Shows</a>
         <a class="nav-item" data-page="music" data-icon="music">Music</a>
+        <a class="nav-item" data-page="library" data-icon="folder">Library</a>
         <a class="nav-item" data-page="people" data-icon="people">People</a>
         <div class="nav-sep"></div>
         <a class="nav-item" data-page="favorites" data-icon="heart">Favorites</a>
@@ -102,6 +104,7 @@
   <script src="api/client.js"></script>
   <script src="state/app.js"></script>
   <script src="components/cards.js"></script>
+  <script src="pages/lists.js"></script>
   <script src="pages/home.js"></script>
   <script src="pages/library.js"></script>
   <script src="pages/detail.js"></script>

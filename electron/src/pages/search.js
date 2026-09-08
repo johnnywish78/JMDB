@@ -8,13 +8,13 @@ async function renderSearch() {
   body.innerHTML = `
     <div class="section-header"><span class="section-title">Search</span></div>
     <div style="margin-bottom:16px;">
-      <input type="text" class="form-input" id="searchInput" placeholder="Search movies, TV shows, music…" style="max-width:500px;" autocomplete="off">
+      <input type="text" class="form-input" id="pageSearchInput" placeholder="Search movies, TV shows, music…" style="max-width:500px;" autocomplete="off">
     </div>
     <div id="searchResults"></div>`;
   body.classList.remove('hidden');
   document.getElementById('contentLoading').classList.add('hidden');
 
-  const input = document.getElementById('searchInput');
+  const input = document.getElementById('pageSearchInput');
   input.focus();
 
   input.addEventListener('input', () => {

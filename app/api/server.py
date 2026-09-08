@@ -11,8 +11,9 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 log = logging.getLogger("jmdb.api")
 
@@ -137,6 +138,16 @@ async def get_music(sort: str = "title", limit: int | None = None):
     c = _get_container()
     items = c.media_repo.list("music", sort=sort, limit=limit)
     return {"total": len(items), "items": items}
+
+
+@_health_app.get("/api/library/{kind}")
+async def get_library_kind(kind: str, sort: str = "rating", limit: int | None = None):
+    """Generic listing used by the renderer (kind = movie | show | music)."""
+    if kind not in {"movie", "show", "music"}:
+        raise HTTPException(404, "Unknown kind")
+    c = _get_container()
+    items = c.media_repo.list(kind, sort=sort, limit=limit)
+    return {"kind": kind, "total": len(items), "items": items}
 
 
 # ── media detail ──────────────────────────────────────────────────────────────
@@ -307,7 +318,14 @@ async def statistics():
 
 # ── scanner ───────────────────────────────────────────────────────────────────
 
-_scan_status: dict = {"running": False, "summary": None, "current_file": ""}
+_scan_status: dict = {
+    "running": False,
+    "summary": None,
+    "current_file": "",
+    "scanned": 0,
+    "total": 0,
+    "discovered": {"movies": 0, "episodes": 0, "music": 0},
+}
 
 
 @_health_app.get("/api/scan/status")
@@ -315,39 +333,55 @@ async def scan_status():
     return _scan_status
 
 
+class ScanRequest(BaseModel):
+    folders: list[str] | None = None
+    enrich: bool = True
+
+
 @_health_app.post("/api/scan")
-async def start_scan(folders: list[str] | None = None, enrich: bool = True):
+async def start_scan(body: ScanRequest | None = Body(default=None)):
     if _scan_status["running"]:
         return {"ok": False, "message": "Scan already running"}
-    _scan_status.update({"running": True, "summary": None, "current_file": ""})
 
     import threading
-    from app.library.scanner import ScanWorker
     from app.library.indexer import LibraryIndexer
+    from app.library.scan_core import run_scan
 
     c = _get_container()
-    folders = folders or c.settings.get("library_folders", [])
+    folders = (body.folders if body and body.folders else None) or c.settings.get("library_folders", [])
+    enrich = body.enrich if body is not None else True
     if not folders:
-        _scan_status["running"] = False
         _scan_status["summary"] = {"error": "No library folders configured"}
         return {"ok": False, "message": "No library folders"}
+
+    _scan_status.update({
+        "running": True, "summary": None, "current_file": "",
+        "scanned": 0, "total": 0,
+        "discovered": {"movies": 0, "episodes": 0, "music": 0},
+    })
 
     def _run():
         indexer = LibraryIndexer(c.media_repo, c.episode_repo)
         mgr = c.metadata if enrich else None
-        worker = ScanWorker(folders, indexer, metadata_manager=mgr, enrich=enrich)
 
         def _on_progress(cur, total, path):
+            _scan_status["scanned"] = cur
+            _scan_status["total"] = total
             _scan_status["current_file"] = Path(path).name
+
+        def _on_indexed(item):
+            kind = item.get("kind")
+            key = {"movie": "movies", "episode": "episodes", "music": "music"}.get(kind)
+            if key:
+                _scan_status["discovered"][key] += 1
 
         def _on_finished(summary):
             _scan_status["running"] = False
             _scan_status["summary"] = summary
 
-        worker.progressed.connect(_on_progress)
-        worker.finished_summary.connect(_on_finished)
-        worker.start()
-        worker.wait()
+        run_scan(folders, indexer, metadata_manager=mgr, enrich=enrich,
+                 on_progress=_on_progress, on_indexed=_on_indexed,
+                 on_finished=_on_finished, polite_delay=0.0)
 
     threading.Thread(target=_run, daemon=True).start()
     return {"ok": True, "message": "Scan started"}
@@ -405,17 +439,22 @@ async def playback_start(payload: dict):
     return {"ok": True}
 
 
+class ProgressBody(BaseModel):
+    position_s: int = 0
+    duration_s: int = 0
+
+
 @_health_app.post("/api/playback/progress")
-async def playback_progress(position_s: int = 0, duration_s: int = 0):
+async def playback_progress(body: ProgressBody = Body(default=ProgressBody())):
     c = _get_container()
-    c.playback.tick(position_s, duration_s)
+    c.playback.tick(body.position_s, body.duration_s)
     return {"ok": True}
 
 
 @_health_app.post("/api/playback/stop")
-async def playback_stop(position_s: int = 0, duration_s: int = 0):
+async def playback_stop(body: ProgressBody = Body(default=ProgressBody())):
     c = _get_container()
-    c.playback.session_stopped(position_s, duration_s)
+    c.playback.session_stopped(body.position_s, body.duration_s)
     return {"ok": True}
 
 
@@ -465,6 +504,19 @@ async def cache_clear(bucket: str | None = None):
 
 # ── artwork ───────────────────────────────────────────────────────────────────
 
+def _artwork_local(c, url: str, key: str, kind: str):
+    from app.metadata.artwork import ARTWORK_SUBDIRS
+    import hashlib
+    subdir = ARTWORK_SUBDIRS.get(kind, "posters")
+    folder = c.paths.artwork_dir / subdir
+    digest = hashlib.sha1(f"{key}|{url}".encode()).hexdigest()[:16]
+    for ext in (".jpg", ".jpeg", ".png"):
+        p = folder / f"{digest}{ext}"
+        if p.exists():
+            return p
+    return None
+
+
 @_health_app.get("/api/artwork/{kind}/{key}")
 async def get_artwork(kind: str, key: str):
     c = _get_container()
@@ -478,3 +530,29 @@ async def get_artwork(kind: str, key: str):
         if p.exists():
             return {"path": str(p), "url": f"file://{p}"}
     return {"path": None}
+
+
+@_health_app.get("/api/artwork/resolve")
+async def artwork_resolve(media_id: int = 0, kind: str = "poster", url: str = ""):
+    """Download (or locate cached) artwork for a URL; returns local path."""
+    c = _get_container()
+    if not url:
+        return {"path": None}
+    local = c.artwork.local_for(url, f"m{media_id}", kind)
+    return {"path": local}
+
+
+@_health_app.get("/api/artwork/serve")
+async def artwork_serve(media_id: int = 0, kind: str = "poster", url: str = ""):
+    """Serve cached artwork bytes over HTTP (no file:// needed in renderer)."""
+    from fastapi.responses import FileResponse
+    c = _get_container()
+    p = _artwork_local(c, url, f"m{media_id}", kind)
+    if p is None and url and not url.startswith("http"):
+        candidate = Path(url)
+        if candidate.is_file():
+            p = candidate
+    if p is None:
+        raise HTTPException(404, "artwork not cached")
+    media = "image/png" if str(p).endswith(".png") else "image/jpeg"
+    return FileResponse(p, media_type=media)

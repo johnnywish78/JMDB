@@ -69,7 +69,8 @@ const AppState = {
       duration_s: (item.runtime_min || 0) * 60,
       media_id: item.id,
     };
-    jmdb.playMedia(payload);
+    if (typeof renderPlayer === 'function') renderPlayer({ payload });
+    else if (window.jmdb) jmdb.playMedia(payload);
   },
 
   toast(msg, type = 'info') {
