@@ -43,7 +43,8 @@ DEFAULTS = {
     "download_backdrops": True,
     "artwork_revalidate_days": 30,
     # Playback
-    "playback_backend": "auto",  # auto | vlc | mpv | qt | external
+    "playback_backend": "auto",  # auto | vlc | mpv | qt | external (legacy Qt UI)
+    "player_engine": "auto",  # embedded Electron player: auto | mpv | chromium
     "external_player_path": "",  # empty = auto-detect
     "autoplay_next": True,  # autoplay next episode/track when one finishes
     "player_default_volume": 90,  # 0-100
@@ -73,6 +74,7 @@ DEFAULTS = {
 
 VALID_THEMES = {"dark", "light", "system"}
 VALID_BACKENDS = {"auto", "vlc", "mpv", "qt", "external"}
+VALID_PLAYER_ENGINES = {"auto", "mpv", "chromium"}
 VALID_QUALITY = {"high", "medium", "low"}
 
 
@@ -187,6 +189,10 @@ class SettingsService:
             raise SettingsError("browser_default_zoom must be between 50 and 300")
         if key == "theme" and value not in VALID_THEMES:
             raise SettingsError(f"theme must be one of {sorted(VALID_THEMES)}")
+        if key == "player_engine" and value not in VALID_PLAYER_ENGINES:
+            raise SettingsError(
+                f"player_engine must be one of {sorted(VALID_PLAYER_ENGINES)}"
+            )
         if key == "playback_backend" and value not in VALID_BACKENDS:
             raise SettingsError(
                 f"playback_backend must be one of {sorted(VALID_BACKENDS)}"

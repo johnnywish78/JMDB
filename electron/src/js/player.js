@@ -24,9 +24,133 @@ export async function openPlayer({ mediaType, mediaId, context = null, startAt =
     toast(`Playback failed: ${error.message || error}`, "error");
     return;
   }
+  // engine choice: mpv (multi-codec, VLC-style) when the desktop bridge and
+  // the binary are available; the built-in Chromium player otherwise
+  const { engine, bridge } = await resolveEngine();
+  if (engine === "mpv") {
+    const handoff = new MpvHandoff(data, bridge, { requestedStart: startAt });
+    const started = await handoff.start();
+    if (started) {
+      active = handoff;
+      return handoff;
+    }
+    // the engine refused honestly (mpv missing, no X window, bad file) —
+    // fall through to the built-in player
+  }
   active = new Player(data, { requestedStart: startAt });
   active.open();
   return active;
+}
+
+/** Decide the playback engine for this run. Pure bridge detection — never
+ * assumes mpv exists; "chromium" is always the honest fallback. */
+async function resolveEngine() {
+  const bridge = window.jmdb && window.jmdb.mpv ? window.jmdb.mpv : null;
+  if (!bridge) return { engine: "chromium", bridge: null };
+  const setting = String(store.settings.player_engine || "auto");
+  if (setting === "chromium") return { engine: "chromium", bridge };
+  try {
+    const status = await bridge.status();
+    if (status && status.available) return { engine: "mpv", bridge, status };
+    if (setting === "mpv") {
+      toast(`mpv engine unavailable: ${status?.reason || "not installed"} — using the built-in player`, "error");
+    }
+    return { engine: "chromium", bridge };
+  } catch {
+    return { engine: "chromium", bridge };
+  }
+}
+
+/** mpv-engine handoff: the real decoding lives in the main process (mpv
+ * embedded in the window, controls in a native overlay). This class owns the
+ * renderer side — session data, queue moves, and honest fallback. */
+class MpvHandoff {
+  constructor(data, bridge, { requestedStart = null } = {}) {
+    this.data = data;
+    this.bridge = bridge;
+    this.media = data.media;
+    this.sessionId = data.session_id;
+    this.requestedStart = requestedStart;
+    this.closed = false;
+    this.offs = [];
+    this.root = null;
+  }
+
+  get seekStep() {
+    const step = Number(store.settings.seek_step_seconds);
+    return Number.isFinite(step) && step > 0 && step <= 120 ? step : 10;
+  }
+  get volumeStep() {
+    const step = Number(store.settings.volume_step);
+    return Number.isFinite(step) && step > 0 && step <= 50 ? step : 5;
+  }
+
+  async start() {
+    const file = this.media.file || {};
+    const payload = {
+      path: file.path || "",
+      fileExists: file.exists !== false,
+      url: this.data.stream_url,
+      start: this.requestedStart ?? this.data.position ?? 0,
+      duration: this.data.duration_hint || 0,
+      volume: Number(store.settings.player_default_volume ?? 90),
+      title: this.media.subtitle ? `${this.media.title} — ${this.media.subtitle}` : this.media.title,
+      sessionId: this.sessionId,
+      mediaType: this.media.type,
+      mediaId: this.media.id,
+      subtitles: (this.data.subtitles || []).filter((s) => s.path),
+      subtitleLanguage: String(store.settings.default_subtitle_language || ""),
+      queue: this.data.queue || [],
+      autoplayNext: Boolean(this.data.autoplay_next),
+      seekStep: this.seekStep,
+      volumeStep: this.volumeStep,
+    };
+    let result;
+    try {
+      result = await this.bridge.open(payload);
+    } catch (error) {
+      result = { ok: false, error: error.message || String(error) };
+    }
+    if (!result || !result.ok) {
+      toast(`mpv engine: ${(result && result.error) || "could not start"} — using the built-in player`, "error");
+      return false;
+    }
+
+    document.body.classList.add("player-open");
+    this.root = el("div", { class: "player mpv-mode" },
+      el("div", { class: "mpv-backing" },
+        el("h3", {}, this.media.title),
+        el("p", {}, "Playing through the embedded mpv engine (multi-codec)."),
+        el("p", { class: "hint" }, "Controls are on the video — move the mouse. Esc returns here.")));
+    const mount = document.getElementById("player-root") || document.body;
+    mount.append(this.root);
+
+    this.offs.push(window.jmdb.on("mpv:closed", () => this.close(true)));
+    this.offs.push(window.jmdb.on("mpv:next", (next) => this.queueMove(next)));
+    this.offs.push(window.jmdb.on("mpv:prev", (next) => this.queueMove(next)));
+    return true;
+  }
+
+  queueMove(next) {
+    if (!next || !next.mediaType || !next.mediaId) return;
+    this.close(true);
+    openPlayer({ mediaType: next.mediaType, mediaId: next.mediaId, context: this.data.context || null, startAt: 0 });
+  }
+
+  close(skipReport = true) {
+    if (this.closed) return;
+    this.closed = true;
+    for (const off of this.offs) off();
+    this.offs = [];
+    document.body.classList.remove("player-open");
+    this.root?.remove();
+    this.root = null;
+    // idempotent: the engine may already be down (this close often runs
+    // BECAUSE the engine told us it closed)
+    this.bridge.close().catch(() => {});
+    if (active === this) active = null;
+    navigate(currentHashForRefresh());
+  }
 }
 
 /** Small artwork thumbnail that hides itself when the image fails to load

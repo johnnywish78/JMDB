@@ -124,6 +124,7 @@ def _subtitle_list(services, media_file_id: int) -> list[dict]:
             "language": option.language,
             "kind": url_kind,
             "url": f"/api/subtitles?path={path}",
+            "path": path,  # local .srt/.vtt path for the mpv engine (--sub-file)
         })
     return out
 
@@ -181,6 +182,8 @@ def playback_start(request: Request, body: dict) -> dict:
             "file": {
                 "id": playable.media_file_id,
                 "name": path.name,
+                "path": str(path),  # absolute local path: lets the embedded
+                # mpv engine open the file directly (same machine as the app)
                 "size": (media_file.size_bytes if media_file else 0),
                 "mime": mime,
                 "exists": path.exists(),

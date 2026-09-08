@@ -135,6 +135,9 @@ def test_playback_start_surfaces_probe_codec_facts(seeded):
     assert info["video_codec"].lower().startswith("hevc"), info
     assert info["width"] > 0 and info["height"] > 0, info
     assert isinstance(info["audio_tracks"], list), info
+    # the embedded mpv engine opens the real local file directly
+    assert info["path"] == str(movie.path), info
+    assert info["exists"] is True, info
 
 
 def test_playback_external_launches_configured_player(seeded, monkeypatch):

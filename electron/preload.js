@@ -73,6 +73,13 @@ contextBridge.exposeInMainWorld("jmdb", {
     openInFolder: (id) => invoke("downloads:openInFolder", id),
   },
 
+  // embedded multi-codec mpv engine (desktop app only)
+  mpv: {
+    status: () => invoke("mpv:status"),
+    open: (payload) => invoke("mpv:open", payload),
+    close: () => invoke("mpv:close"),
+  },
+
   permissions: {
     respond: (payload) => invoke("permissions:respond", payload),
   },
@@ -108,6 +115,9 @@ contextBridge.exposeInMainWorld("jmdb", {
       "downloads:updated",
       "permissions:asked",
       "native-theme-changed",
+      "mpv:closed",
+      "mpv:next",
+      "mpv:prev",
     ];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_event, payload) => callback(payload);

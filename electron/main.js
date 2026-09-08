@@ -18,6 +18,7 @@ const { buildContextMenu } = require("./main/context-menu");
 const { ExternalBrowser } = require("./main/external");
 const { PasswordVault } = require("./main/passwords");
 const { registerIpc } = require("./main/ipc");
+const { MpvEngine } = require("./main/mpv");
 
 /** Matches the backend's browser_default_zoom default (percent). */
 const DEFAULT_ZOOM_PERCENT = 100;
@@ -38,6 +39,7 @@ let downloads = null;
 let permissions = null;
 /** @type {PasswordVault} */
 let vault = null;
+let mpvEngineCleanup = null;
 let quitting = false;
 
 // ----------------------------------------------------------------------------
@@ -189,6 +191,18 @@ async function boot() {
   // hub-tab permission requests surface as the in-page JPNH-style dialog
   permissions.setHubLookup((wc) => hub != null && hub.isTabWebContents(wc));
 
+  // embedded multi-codec player: mpv renders inside the main window and is
+  // driven over its JSON IPC; a child overlay window carries the controls.
+  // Created AFTER the window exists (it parents to it) and BEFORE registerIpc.
+  const mpvEngine = new MpvEngine({
+    getWindow: () => mainWindow,
+    backendInfo: () => (backend ? { url: backend.url, token: backend.token } : null),
+    sendToRenderer: (channel, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+    },
+  });
+  mpvEngineCleanup = () => mpvEngine.closeInternal("app-quit", {}).catch(() => {});
+
   // Shared IPC surface: registered exactly once, only AFTER every real
   // manager instance exists, and BEFORE the renderer loads so no bridge
   // invoke can race a missing handler. (This used to run in whenReady()
@@ -201,6 +215,7 @@ async function boot() {
     backend,
     vault,
     getWindow: () => mainWindow,
+    mpv: mpvEngine,
   });
 
   const bootUrl = new URL("/app/boot", info.url);
@@ -250,6 +265,7 @@ app.on("before-quit", (event) => {
   if (quitting) return;
   quitting = true;
   if (hub) hub.setVisible(false);
+  if (mpvEngineCleanup) mpvEngineCleanup();
   if (backend) {
     event.preventDefault();
     backend

@@ -337,6 +337,18 @@ def main() -> int:
         check("service cards show real SVG brand icons",
               brand_data.get("cards") == 4 and brand_data.get("withSvg") == 4,
               f"svg={brand_data.get('withSvg')}/{brand_data.get('cards')}")
+        # official COLORFUL marks: each icon carries its official brand fill
+        color_raw = js(view, """(() => {
+            const fills = [...document.querySelectorAll('.service-card .svc-icon svg [fill]')]
+                .map(el => el.getAttribute('fill'));
+            return JSON.stringify(fills);
+        })()""", timeout_s=6)
+        fills = _parse_json(color_raw) or []
+        fill_set = set(str(f).upper() for f in fills if f and f != "none")
+        official = {"#FF0000", "#229ED9", "#1DB954", "#104D9C", "#FFFFFF", "#191414"}
+        check("brand icons are official-color marks (YouTube red, Telegram blue, Spotify green, TV Time blue)",
+              {"#FF0000", "#229ED9", "#1DB954", "#104D9C"}.issubset(fill_set),
+              f"fills={sorted(fill_set)}")
     else:
         check("service cards show real SVG brand icons", False, str(brand)[:60])
 
@@ -426,6 +438,65 @@ def main() -> int:
         check("subtitles endpoint serves WebVTT", vtt.startswith("WEBVTT"), vtt[:40].replace("\n", " "))
     else:
         check("subtitles endpoint serves WebVTT", False, "seed srt missing")
+
+    # ---------------------------------------------------------------- mpv engine handoff (injected desktop bridge)
+    # The real desktop app exposes window.jmdb.mpv; here we inject a faithful
+    # fake bridge BEFORE clicking Play so the REAL handoff code in player.js
+    # runs in a real browser: status → open(payload) → mpv-mode page → close.
+    played = goto(f"#/movie/{movie_id}", "document.querySelectorAll('.play-btn').length")
+    js(view, """(() => {
+        window.__mpv_calls = [];
+        window.__mpv_listeners = {};
+        window.jmdb = {
+            mpv: {
+                status: async () => ({ available: true, path: '/usr/bin/mpv', version: '0.38-test' }),
+                open: async (payload) => { window.__mpv_calls.push(['open', payload]); return { ok: true, engine: 'mpv' }; },
+                close: async () => { window.__mpv_calls.push(['close']); return { ok: true }; },
+            },
+            on: (channel, cb) => {
+                (window.__mpv_listeners[channel] = window.__mpv_listeners[channel] || []).push(cb);
+                return () => {};
+            },
+        };
+        return 1;
+    })()""", timeout_s=3)
+    js(view, "(() => { document.querySelector('.play-btn').click(); return 1 })()", timeout_s=3)
+    ok = wait_js(view, "document.querySelector('.player.mpv-mode') ? 1 : 0", 10)
+    check("mpv engine chosen when the desktop bridge reports it available", bool(ok))
+    if ok:
+        payload_raw = js(view, "JSON.stringify((window.__mpv_calls.find(c => c[0] === 'open') || [null, null])[1])", timeout_s=5)
+        payload = _parse_json(payload_raw) or {}
+        check("mpv handoff passes the real file path and session data",
+              bool(payload.get("path")) and payload.get("sessionId") and payload.get("mediaType") == "movie"
+              and payload.get("title") and "seekStep" in payload,
+              f"path={str(payload.get('path'))[:40]}… session={bool(payload.get('sessionId'))}")
+        # closing: the engine tells the renderer, the page cleans up
+        js(view, """(() => { (window.__mpv_listeners['mpv:closed'] || []).forEach(cb => cb({ reason: 'user' })); return 1 })()""", timeout_s=3)
+        ok2 = wait_js(view, "document.querySelector('.player.mpv-mode') ? 0 : 1", 10)
+        check("mpv player page closes when the engine reports closed", bool(ok2))
+    js(view, "(() => { delete window.jmdb; window.__mpv_calls = []; return 1 })()", timeout_s=3)
+
+    # honest fallback: bridge present but mpv NOT available → built-in player
+    goto(f"#/movie/{movie_id}", "document.querySelectorAll('.play-btn').length")
+    js(view, """(() => {
+        window.jmdb = {
+            mpv: {
+                status: async () => ({ available: false, reason: 'mpv is not installed' }),
+                open: async () => ({ ok: false, error: 'unavailable' }),
+                close: async () => ({ ok: false }),
+            },
+            on: () => () => {},
+        };
+        return 1;
+    })()""", timeout_s=3)
+    js(view, "(() => { document.querySelector('.play-btn').click(); return 1 })()", timeout_s=3)
+    ok = wait_js(view, "document.querySelector('.player video') ? 1 : 0", 15)
+    check("player falls back to the built-in engine when mpv is unavailable", bool(ok))
+    if ok:
+        js(view, """(() => { const v = document.querySelector('.player video'); if (v) v.pause(); return 1 })()""", timeout_s=3)
+        js(view, """(() => { const p = document.querySelector('.player-top button[title^="Back"]'); if (p) p.click(); return 1 })()""", timeout_s=3)
+        wait_js(view, "document.querySelector('.player') ? 0 : 1", 10)
+    js(view, "(() => { delete window.jmdb; return 1 })()", timeout_s=3)
 
     # ---------------------------------------------------------------- PLAYER with a real video
     played = goto(f"#/movie/{movie_id}", "document.querySelectorAll('.play-btn').length")

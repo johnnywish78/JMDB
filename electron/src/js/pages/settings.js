@@ -155,6 +155,48 @@ export default async function render(container) {
   /* ------------------------------------------------ playback */
   const playbackSection = section("Playback", "Player behavior. The backend owns resume, watched-marking and next-episode decisions.");
   playbackSection.append(
+    (() => {
+      // engine selector with REAL detection status — never claims mpv works
+      // when the binary is missing
+      const wrap = el("div", { class: "setting-row" },
+        el("div", { class: "labels" },
+          el("div", { class: "t" }, "Player engine"),
+          el("div", { class: "s" }, "mpv = every codec (HEVC 10-bit, AV1, DTS…) rendered inside the app; Built-in = the Chromium player")));
+      const select = el("select", { class: "select" },
+        ...[["auto", "Auto (mpv when available)"], ["mpv", "mpv (multi-codec)"], ["chromium", "Built-in player"]].map(([value, label]) =>
+          el("option", { value, selected: value === (values.player_engine || "auto") ? "selected" : null }, label)));
+      select.addEventListener("change", async () => {
+        await saveSettings({ player_engine: select.value });
+        toast(`Player engine set to ${select.value === "mpv" ? "mpv" : select.value === "chromium" ? "the built-in player" : "auto"}`, "success");
+        updateEngineStatus();
+      });
+      async function updateEngineStatus() {
+        let statusText = "Detection runs inside the desktop app.";
+        let ok = false;
+        if (window.jmdb?.mpv) {
+          try {
+            const status = await window.jmdb.mpv.status();
+            if (status?.available) {
+              statusText = `mpv ${status.version} detected (${status.path})`;
+              ok = true;
+            } else {
+              statusText = status?.reason || "mpv not found";
+            }
+          } catch { statusText = "mpv detection failed"; }
+        }
+        const row = el("div", { class: "setting-row" },
+          el("div", { class: "labels" },
+            el("div", { class: "t" }, "Engine status"),
+            el("div", { class: "s", style: { color: ok ? "var(--ok, #7bd88f)" : "var(--text-dim)" } }, statusText)));
+        const old = wrap.parentElement?.querySelector(".engine-status-row");
+        if (old) old.remove();
+        row.classList.add("engine-status-row");
+        wrap.after(row);
+      }
+      wrap.append(select);
+      updateEngineStatus();
+      return wrap;
+    })(),
     toggleRow("Autoplay next episode", "Continue to the next episode when one ends", "autoplay_next", values.autoplay_next),
     numberRow("Default volume", "Player volume percent (0–100)", "player_default_volume", values.player_default_volume, 0, 100),
     numberRow("Seek step", "Seconds the ←/→/J/L keys jump in the player", "seek_step_seconds", values.seek_step_seconds, 1, 120),

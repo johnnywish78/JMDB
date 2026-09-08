@@ -19,7 +19,7 @@
 const { app, dialog, ipcMain } = require("electron");
 const { ExternalBrowser } = require("./external");
 
-function registerIpc({ hub, downloads, permissions, vault = null, backend = null, getWindow }) {
+function registerIpc({ hub, downloads, permissions, vault = null, backend = null, getWindow, mpv = null }) {
   if (!hub || !downloads || !permissions) {
     throw new Error("registerIpc: hub, downloads and permissions instances are required");
   }
@@ -84,6 +84,13 @@ function registerIpc({ hub, downloads, permissions, vault = null, backend = null
   ipcMain.handle("downloads:pause", (_e, id) => downloads.pause(id));
   ipcMain.handle("downloads:resume", (_e, id) => downloads.resume(id));
   ipcMain.handle("downloads:openInFolder", (_e, id) => downloads.openInFolder(id));
+
+  // ---- embedded mpv engine (optional: null in smoke/legacy contexts) ------
+  ipcMain.handle("mpv:status", () => (mpv ? mpv.status() : Promise.resolve({ available: false, reason: "the mpv engine only exists in the full desktop app" })));
+  ipcMain.handle("mpv:open", (_e, payload) => (mpv ? mpv.open(payload || {}) : Promise.resolve({ ok: false, error: "mpv engine unavailable" })));
+  ipcMain.handle("mpv:close", () => (mpv ? mpv.close() : Promise.resolve({ ok: false })));
+  // overlay window → engine commands
+  ipcMain.handle("ov:cmd", (_e, name, arg) => (mpv ? mpv.command(name, arg) : Promise.resolve({ ok: false, error: "engine not running" })));
 
   ipcMain.handle("permissions:respond", (_e, payload) =>
     permissions.respondFromRenderer(payload)
