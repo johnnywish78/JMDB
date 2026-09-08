@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "smoke": "electron smoke.js",
-    "test": "node --test test/url-utils.test.js test/external.test.js test/hub.test.js test/address.test.js test/modules.test.js test/permissions.test.js test/ipc.test.js test/passwords.test.js"
+    "test": "node --test test/url-utils.test.js test/external.test.js test/hub.test.js test/address.test.js test/modules.test.js test/permissions.test.js test/ipc.test.js test/passwords.test.js test/main-lifecycle.test.js"
   },
   "devDependencies": {
     "electron": "^44.2.0"

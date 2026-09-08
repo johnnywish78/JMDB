@@ -155,6 +155,12 @@ async function boot() {
   }
 
   hardenSession(session.fromPartition("persist:jmdb"));
+
+  // The window must exist before the managers: PermissionManager and
+  // DownloadManager capture it to route dialogs and progress to the renderer,
+  // so constructing them earlier would freeze a null window forever.
+  createWindow();
+
   permissions = new PermissionManager(mainWindow);
   downloads = new DownloadManager(mainWindow);
   vault = new PasswordVault({
@@ -183,7 +189,19 @@ async function boot() {
   // hub-tab permission requests surface as the in-page JPNH-style dialog
   permissions.setHubLookup((wc) => hub != null && hub.isTabWebContents(wc));
 
-  createWindow();
+  // Shared IPC surface: registered exactly once, only AFTER every real
+  // manager instance exists, and BEFORE the renderer loads so no bridge
+  // invoke can race a missing handler. (This used to run in whenReady()
+  // before boot() created the managers — the real-Electron startup crash
+  // "registerIpc: hub, downloads and permissions instances are required".)
+  registerIpc({
+    hub,
+    downloads,
+    permissions,
+    backend,
+    vault,
+    getWindow: () => mainWindow,
+  });
 
   const bootUrl = new URL("/app/boot", info.url);
   bootUrl.searchParams.set("token", info.token);
@@ -209,16 +227,10 @@ async function boot() {
 // lifecycle
 // ----------------------------------------------------------------------------
 app.whenReady().then(() => {
-  // the shared registration in main/ipc.js maps every preload bridge call to
-  // this process's real manager instances
-  registerIpc({
-    hub,
-    downloads,
-    permissions,
-    backend,
-    vault,
-    getWindow: () => mainWindow,
-  });
+  // boot() owns the full startup order: backend → window → managers →
+  // vault → Hub → shared IPC registration → renderer load. The shared
+  // registerIpc() in main/ipc.js is called from boot() once every real
+  // instance exists (registering here, before boot(), passed null managers).
   nativeTheme.on("updated", () => {
     if (mainWindow) {
       mainWindow.webContents.send("native-theme-changed", {
