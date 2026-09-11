@@ -1,0 +1,11 @@
+{
+  "name": "jmdb",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "electron": "npm --prefix electron start",
+    "test:electron": "npm --prefix electron test",
+    "test:python": "pytest -q",
+    "test": "npm run test:python && npm run test:electron"
+  }
+}

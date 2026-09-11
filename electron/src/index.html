@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="
+      default-src 'self';
+      connect-src 'self' http://127.0.0.1:*;
+      img-src 'self' data: blob:;
+      style-src 'self' 'unsafe-inline';
+      script-src 'self';
+      font-src 'self' data:;
+      media-src 'self' blob:;
+    "
+  >
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JMDB</title>
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">J</div>
+        <div>
+          <div class="brand-name">JMDB</div>
+          <div class="brand-subtitle">Johnny Media Database</div>
+        </div>
+      </div>
+
+      <nav class="navigation">
+        <button class="nav-item active" data-page="dashboard">
+          <span>⌂</span>
+          <span>Dashboard</span>
+        </button>
+
+        <button class="nav-item" data-page="library">
+          <span>▣</span>
+          <span>Library</span>
+        </button>
+
+        <button class="nav-item" data-page="search">
+          <span>⌕</span>
+          <span>Search</span>
+        </button>
+
+        <button class="nav-item" data-page="lists">
+          <span>☷</span>
+          <span>Lists</span>
+        </button>
+
+        <button class="nav-item" data-page="browser">
+          <span>◉</span>
+          <span>Browser</span>
+        </button>
+
+        <button class="nav-item" data-page="services">
+          <span>◆</span>
+          <span>Services</span>
+        </button>
+
+        <button class="nav-item" data-page="settings">
+          <span>⚙</span>
+          <span>Settings</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="backend-status">
+          <span id="status-dot"></span>
+          <span id="status-text">Checking backend…</span>
+        </div>
+        <div class="version">JMDB 0.1.0</div>
+      </div>
+    </aside>
+
+    <main id="main">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">Dashboard</h1>
+          <p id="page-subtitle">Your media library at a glance.</p>
+        </div>
+
+        <div class="topbar-actions">
+          <button id="global-search" class="toolbar-button">
+            Search
+          </button>
+        </div>
+      </header>
+
+      <section id="content" class="content"></section>
+    </main>
+  </div>
+
+  <script src="./main.js"></script>
+</body>
+</html>

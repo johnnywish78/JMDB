@@ -1,0 +1,14 @@
+{
+  "name": "jmdb-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Johnny Media Database desktop application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "electron": "^44.2.0"
+  }
+}
