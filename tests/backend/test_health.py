@@ -35,5 +35,7 @@ def test_system_status():
 
     data = response.json()
 
-    assert data["database_schema"] == 1
+    from app.database.migrations import SCHEMA_VERSION
+
+    assert data["database_schema"] == SCHEMA_VERSION
     assert data["media_count"] == 0
