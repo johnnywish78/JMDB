@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self' http://127.0.0.1:*;">
+  <title>JMDB</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="theme-dark">
+  <div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-icon">J</div>
+        <div class="logo-text">
+          <div class="logo-title">JMDB</div>
+          <div class="logo-subtitle">Johnny's Media Database</div>
+        </div>
+      </div>
+      <span class="version-badge">v1.0.0</span>
+      <nav>
+        <div class="nav-section">
+          <div class="nav-section-title">Library</div>
+          <a class="nav-item active" data-page="home"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a>
+          <a class="nav-item" data-page="movies"><span class="nav-icon">🎬</span><span class="nav-label">Movies</span></a>
+          <a class="nav-item" data-page="tvshows"><span class="nav-icon">📺</span><span class="nav-label">TV Shows</span></a>
+          <a class="nav-item" data-page="music"><span class="nav-icon">🎵</span><span class="nav-label">Music</span></a>
+          <a class="nav-item" data-page="people"><span class="nav-icon">👤</span><span class="nav-label">People</span></a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Your Lists</div>
+          <a class="nav-item" data-page="favorites"><span class="nav-icon">❤️</span><span class="nav-label">Favorites</span></a>
+          <a class="nav-item" data-page="watchlist"><span class="nav-icon">⭐</span><span class="nav-label">Watchlist</span></a>
+          <a class="nav-item" data-page="collections"><span class="nav-icon">📁</span><span class="nav-label">Collections</span></a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">More</div>
+          <a class="nav-item" data-page="browser"><span class="nav-icon">🌐</span><span class="nav-label">Browser Hub</span></a>
+          <a class="nav-item" data-page="library-manager"><span class="nav-icon">📁</span><span class="nav-label">Library Manager</span></a>
+          <a class="nav-item" data-page="services"><span class="nav-icon">🔌</span><span class="nav-label">Services</span></a>
+          <a class="nav-item" data-page="statistics"><span class="nav-icon">📊</span><span class="nav-label">Statistics</span></a>
+          <a class="nav-item" data-page="settings"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="top-bar">
+        <div class="search-container">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="global-search" class="search-input" placeholder="Search library, movies, shows, music, people...">
+        </div>
+        <div class="top-bar-actions">
+          <button id="theme-toggle" class="icon-btn" title="Toggle theme">🌙</button>
+          <button id="add-library-btn" class="btn btn-primary">+ Add Library</button>
+        </div>
+      </header>
+      <div id="page-container" class="page-container"></div>
+    </main>
+  </div>
+  <div id="toast-container" class="toast-container"></div>
+  <script src="js/app.js"></script>
+  <script src="js/browser.js"></script>
+</body>
+</html>
