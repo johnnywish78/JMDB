@@ -2,65 +2,148 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self' http://127.0.0.1:*;">
-  <title>JMDB</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; connect-src 'self' http://127.0.0.1:*; font-src 'self' data:;">
+  <title>JMDB - Johnny Media Database</title>
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body class="theme-dark">
   <div id="app">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="logo-icon">J</div>
-        <div class="logo-text">
-          <div class="logo-title">JMDB</div>
-          <div class="logo-subtitle">Johnny's Media Database</div>
-        </div>
+    <!-- TOP NAVIGATION BAR -->
+    <header class="top-nav" role="navigation" aria-label="Main navigation">
+      <div class="nav-brand" id="nav-brand">
+        <span class="brand-icon">J</span>
+        <span class="brand-title">JMDB</span>
       </div>
-      <span class="version-badge">v1.0.0</span>
-      <nav>
-        <div class="nav-section">
-          <div class="nav-section-title">Library</div>
-          <a class="nav-item active" data-page="home"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></a>
-          <a class="nav-item" data-page="movies"><span class="nav-icon">🎬</span><span class="nav-label">Movies</span></a>
-          <a class="nav-item" data-page="tvshows"><span class="nav-icon">📺</span><span class="nav-label">TV Shows</span></a>
-          <a class="nav-item" data-page="music"><span class="nav-icon">🎵</span><span class="nav-label">Music</span></a>
-          <a class="nav-item" data-page="people"><span class="nav-icon">👤</span><span class="nav-label">People</span></a>
+      <nav class="nav-primary" role="menubar">
+        <div class="nav-item" role="menuitem" data-page="home" tabindex="0" aria-label="Home">
+          <span class="nav-icon">🏠</span> Home
         </div>
-        <div class="nav-section">
-          <div class="nav-section-title">Your Lists</div>
-          <a class="nav-item" data-page="favorites"><span class="nav-icon">❤️</span><span class="nav-label">Favorites</span></a>
-          <a class="nav-item" data-page="watchlist"><span class="nav-icon">⭐</span><span class="nav-label">Watchlist</span></a>
-          <a class="nav-item" data-page="collections"><span class="nav-icon">📁</span><span class="nav-label">Collections</span></a>
+        
+        <div class="nav-dropdown" role="menu">
+          <button class="nav-item dropdown-trigger" role="menuitem" aria-haspopup="true" aria-expanded="false" tabindex="0" id="dropdown-library">
+            <span class="nav-icon">📚</span> Library
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <div class="dropdown-menu" role="menu" aria-labelledby="dropdown-library">
+            <div class="dropdown-section">
+              <div class="dropdown-header">Browse</div>
+              <a class="dropdown-item" role="menuitem" data-page="library" data-type="all" tabindex="-1"><span>📚</span> All Media</a>
+              <a class="dropdown-item" role="menuitem" data-page="library" data-type="movie" tabindex="-1"><span>🎬</span> Movies</a>
+              <a class="dropdown-item" role="menuitem" data-page="library" data-type="tv_show" tabindex="-1"><span>📺</span> TV Shows</a>
+              <a class="dropdown-item" role="menuitem" data-page="library" data-type="episode" tabindex="-1"><span>📋</span> Episodes</a>
+              <a class="dropdown-item" role="menuitem" data-page="library" data-type="collection" tabindex="-1"><span>📦</span> Collections</a>
+            </div>
+            <div class="dropdown-section">
+              <div class="dropdown-header">Smart Lists</div>
+              <a class="dropdown-item" role="menuitem" data-page="library" data-type="favorite" tabindex="-1"><span>⭐</span> Favorites</a>
+              <a class="dropdown-item" role="menuitem" data-page="library" data-type="recently_added" tabindex="-1"><span>🆕</span> Recently Added</a>
+              <a class="dropdown-item" role="menuitem" data-page="library" data-type="recently_played" tabindex="-1"><span>🕐</span> Recently Played</a>
+              <a class="dropdown-item" role="menuitem" data-page="library" data-type="continue_watching" tabindex="-1"><span>▶️</span> Continue Watching</a>
+              <a class="dropdown-item" role="menuitem" data-page="library" data-type="watched" tabindex="-1"><span>✅</span> Watched</a>
+              <a class="dropdown-item" role="menuitem" data-page="library" data-type="unwatched" tabindex="-1"><span>⭕</span> Unwatched</a>
+            </div>
+          </div>
         </div>
-        <div class="nav-section">
-          <div class="nav-section-title">More</div>
-          <a class="nav-item" data-page="browser"><span class="nav-icon">🌐</span><span class="nav-label">Browser Hub</span></a>
-          <a class="nav-item" data-page="library-manager"><span class="nav-icon">📁</span><span class="nav-label">Library Manager</span></a>
-          <a class="nav-item" data-page="services"><span class="nav-icon">🔌</span><span class="nav-label">Services</span></a>
-          <a class="nav-item" data-page="statistics"><span class="nav-icon">📊</span><span class="nav-label">Statistics</span></a>
-          <a class="nav-item" data-page="settings"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></a>
+
+        <div class="nav-dropdown" role="menu">
+          <button class="nav-item dropdown-trigger" role="menuitem" aria-haspopup="true" aria-expanded="false" tabindex="0" id="dropdown-locations">
+            <span class="nav-icon">📁</span> Locations
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <div class="dropdown-menu" role="menu" aria-labelledby="dropdown-locations">
+            <a class="dropdown-item" role="menuitem" data-page="locations" tabindex="-1"><span>📁</span> Manage Locations</a>
+            <a class="dropdown-item" role="menuitem" data-action="add-location" tabindex="-1"><span>➕</span> Add Location</a>
+            <div class="dropdown-divider"></div>
+            <a class="dropdown-item" role="menuitem" data-action="scan-all" tabindex="-1"><span>🔄</span> Scan All</a>
+            <a class="dropdown-item" role="menuitem" data-page="scan-history" tabindex="-1"><span>📜</span> Scan History</a>
+            <a class="dropdown-item" role="menuitem" data-page="scan-problems" tabindex="-1"><span>⚠️</span> Scan Problems</a>
+          </div>
+        </div>
+
+        <div class="nav-item" role="menuitem" data-page="search" tabindex="0" aria-label="Search">
+          <span class="nav-icon">🔍</span> Search
+        </div>
+
+        <div class="nav-item" role="menuitem" data-page="browser" tabindex="0" aria-label="Browser">
+          <span class="nav-icon">🌐</span> Browser
+        </div>
+
+        <div class="nav-item" role="menuitem" data-page="player" tabindex="0" aria-label="Player">
+          <span class="nav-icon">▶️</span> Player
+        </div>
+
+        <div class="nav-dropdown" role="menu">
+          <button class="nav-item dropdown-trigger" role="menuitem" aria-haspopup="true" aria-expanded="false" tabindex="0" id="dropdown-services">
+            <span class="nav-icon">🔌</span> Services
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <div class="dropdown-menu" role="menu" aria-labelledby="dropdown-services">
+            <a class="dropdown-item" role="menuitem" data-page="services" tabindex="-1"><span>⚙️</span> Manage Services</a>
+            <div class="dropdown-divider"></div>
+            <a class="dropdown-item" role="menuitem" data-page="services" data-service="tmdb" tabindex="-1"><span>🎬</span> TMDB</a>
+            <a class="dropdown-item" role="menuitem" data-page="services" data-service="imdb" tabindex="-1"><span>📽️</span> IMDb</a>
+            <a class="dropdown-item" role="menuitem" data-page="services" data-service="omdb" tabindex="-1"><span>🎞️</span> OMDb</a>
+            <a class="dropdown-item" role="menuitem" data-page="services" data-service="tvtime" tabindex="-1"><span>📺</span> TV Time</a>
+            <a class="dropdown-item" role="menuitem" data-page="services" data-service="youtube" tabindex="-1"><span>📺</span> YouTube</a>
+            <a class="dropdown-item" role="menuitem" data-page="services" data-service="telegram" tabindex="-1"><span>📱</span> Telegram</a>
+            <a class="dropdown-item" role="menuitem" data-page="services" data-service="spotify" tabindex="-1"><span>🎵</span> Spotify</a>
+          </div>
+        </div>
+
+        <div class="nav-item" role="menuitem" data-page="settings" tabindex="0" aria-label="Settings">
+          <span class="nav-icon">⚙️</span> Settings
+        </div>
+
+        <div class="nav-dropdown" role="menu">
+          <button class="nav-item dropdown-trigger" role="menuitem" aria-haspopup="true" aria-expanded="false" tabindex="0" id="dropdown-more">
+            <span class="nav-icon">⋮</span>
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <div class="dropdown-menu right-aligned" role="menu" aria-labelledby="dropdown-more">
+            <a class="dropdown-item" role="menuitem" data-page="favorites" tabindex="-1"><span>⭐</span> Favorites</a>
+            <a class="dropdown-item" role="menuitem" data-page="statistics" tabindex="-1"><span>📊</span> Statistics</a>
+            <a class="dropdown-item" role="menuitem" data-page="activity" tabindex="-1"><span>📋</span> Activity</a>
+            <div class="dropdown-divider"></div>
+            <a class="dropdown-item" role="menuitem" data-page="help" tabindex="-1"><span>❓</span> Help</a>
+            <a class="dropdown-item" role="menuitem" data-page="about" tabindex="-1"><span>ℹ️</span> About</a>
+            <a class="dropdown-item" role="menuitem" data-page="diagnostics" tabindex="-1"><span>🔧</span> Diagnostics</a>
+          </div>
         </div>
       </nav>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="main-content">
-      <header class="top-bar">
-        <div class="search-container">
+      <div class="nav-actions">
+        <div class="search-box" role="search">
           <span class="search-icon">🔍</span>
-          <input type="text" id="global-search" class="search-input" placeholder="Search library, movies, shows, music, people...">
+          <input type="text" id="global-search" placeholder="Search JMDB..." aria-label="Global search" autocomplete="off">
+          <div class="search-results" id="search-results" style="display:none;"></div>
         </div>
-        <div class="top-bar-actions">
-          <button id="theme-toggle" class="icon-btn" title="Toggle theme">🌙</button>
-          <button id="add-library-btn" class="btn btn-primary">+ Add Library</button>
-        </div>
-      </header>
+        <button class="btn btn-sm btn-secondary" id="theme-toggle" aria-label="Toggle theme">🌙</button>
+      </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content" role="main">
       <div id="page-container" class="page-container"></div>
     </main>
   </div>
-  <div id="toast-container" class="toast-container"></div>
+
+  <!-- MODAL CONTAINER -->
+  <div id="modal-container" class="modal-container" role="dialog" aria-modal="true" aria-hidden="true"></div>
+
+  <!-- TOAST CONTAINER -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- CONTEXT MENU -->
+  <div id="context-menu" class="context-menu" role="menu" style="display:none;" aria-hidden="true"></div>
+
+  <!-- LOADING OVERLAY -->
+  <div id="loading-overlay" class="loading-overlay" style="display:none;" aria-hidden="true">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loading-text">Loading...</div>
+  </div>
+
   <script src="js/app.js"></script>
   <script src="js/browser.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/settings.js"></script>
 </body>
 </html>

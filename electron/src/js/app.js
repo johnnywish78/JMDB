@@ -1,374 +1,528 @@
+// JMDB Application Controller
 const App = {
   port: 8765,
   currentPage: 'home',
-  libraries: [],
-  
-  async init() {
-    if (window.jmdb) this.port = await window.jmdb.getBackendPort();
-    this.setupNav();
-    this.setupSearch();
-    this.setupTheme();
-    this.setupAddLibrary();
+  searchDebounce: null,
+
+  init() {
+    console.log('JMDB v1.0.0 initialized');
+    this.setupEventListeners();
+    this.setupDropdowns();
+    this.setupKeyboard();
+    this.setupErrorHandling();
+
+    if (window.jmdb && window.jmdb.getBackendPort) {
+      window.jmdb.getBackendPort().then(port => {
+        this.port = parseInt(port) || 8765;
+      }).catch(() => {});
+    }
+
     this.nav('home');
-    await this.loadLibraries();
   },
 
-  setupNav() {
-    document.querySelectorAll('.nav-item').forEach(item => {
+  setupErrorHandling() {
+    window.onerror = (msg, url, line, col, err) => {
+      console.error(`[JMDB Error] ${msg} at ${line}:${col}`);
+      return false;
+    };
+    window.addEventListener('unhandledrejection', (e) => {
+      console.error('[JMDB Unhandled Rejection]', e.reason);
+    });
+  },
+
+  setupEventListeners() {
+    document.querySelectorAll('.nav-item[data-page]').forEach(item => {
       item.addEventListener('click', (e) => {
         e.preventDefault();
-        this.nav(item.dataset.page);
+        const page = item.dataset.page;
+        const type = item.dataset.type;
+        this.nav(page, { type });
+        this.closeAllDropdowns();
+      });
+    });
+
+    document.querySelectorAll('.nav-item[data-action]').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.preventDefault();
+        const action = item.dataset.action;
+        this.handleAction(action);
+        this.closeAllDropdowns();
+      });
+    });
+
+    const searchInput = document.getElementById('global-search');
+    if (searchInput) {
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const q = searchInput.value.trim();
+          if (q.length >= 2) {
+            this.nav('search', { q });
+            searchInput.blur();
+          }
+        } else if (e.key === 'Escape') {
+          searchInput.value = '';
+          this.hideSearchResults();
+        }
+      });
+      searchInput.addEventListener('input', () => {
+        clearTimeout(this.searchDebounce);
+        const q = searchInput.value.trim();
+        if (q.length >= 2) {
+          this.searchDebounce = setTimeout(() => this.liveSearch(q), 300);
+        } else {
+          this.hideSearchResults();
+        }
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.search-box')) {
+        this.hideSearchResults();
+      }
+    });
+
+    const themeBtn = document.getElementById('theme-toggle');
+    if (themeBtn) {
+      themeBtn.addEventListener('click', () => this.toggleTheme());
+    }
+  },
+
+  setupDropdowns() {
+    // TEMP DEBUG: verify renderer receives the Add Location click.
+    document.addEventListener('click', (e) => {
+      const item = e.target.closest('[data-action="add-location"]');
+      if (item) {
+        alert('JMDB DEBUG: Add Location click received');
+      }
+    }, true);
+
+    // Reliable action handling for dropdown items.
+    // Capture phase guarantees the action is received even if another
+    // renderer handler stops normal bubbling.
+    document.addEventListener('click', (e) => {
+      const item = e.target.closest('.dropdown-item[data-action]');
+      if (!item) return;
+
+      const action = item.dataset.action;
+      if (action !== 'add-location') return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
+      console.log('[JMDB] captured dropdown action:', action);
+      this.handleAction(action);
+      this.closeAllDropdowns();
+    }, true);
+
+    document.querySelectorAll('.dropdown-trigger').forEach(trigger => {
+      trigger.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.toggleDropdown(trigger);
+      });
+      trigger.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.toggleDropdown(trigger);
+        }
+        if (e.key === 'Escape') {
+          this.closeAllDropdowns();
+        }
+      });
+    });
+
+    document.querySelectorAll('.dropdown-item[data-page], .dropdown-item[data-action]').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const page = item.dataset.page;
+        const type = item.dataset.type;
+        const action = item.dataset.action;
+
+        console.log('[JMDB] dropdown item clicked:', { page, type, action });
+
+        if (page) {
+          this.nav(page, { type });
+        } else if (action) {
+          console.log('[JMDB] handling action:', action);
+          this.handleAction(action);
+        }
+
+        this.closeAllDropdowns();
+      });
+
+      item.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          item.click();
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          const next = item.parentElement.querySelector('.dropdown-item:focus, [tabindex="-1"]:not(:focus)') 
+            || item.nextElementSibling;
+          if (next) next.focus();
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          const prev = item.previousElementSibling;
+          if (prev) prev.focus();
+        }
       });
     });
   },
 
-  setupSearch() {
-    const input = document.getElementById('global-search');
-    if (input) {
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && input.value.trim().length >= 2) {
-          this.nav('search', { q: input.value.trim() });
-        }
-      });
+  toggleDropdown(trigger) {
+    const parent = trigger.closest('.nav-dropdown');
+    const menu = parent?.querySelector('.dropdown-menu');
+    if (!menu) return;
+
+    const isOpen = trigger.getAttribute('aria-expanded') === 'true';
+    this.closeAllDropdowns();
+
+    if (!isOpen) {
+      trigger.setAttribute('aria-expanded', 'true');
+      menu.style.display = 'block';
     }
   },
 
-  setupTheme() {
-    const btn = document.getElementById('theme-toggle');
-    if (btn) btn.addEventListener('click', () => this.toggleTheme());
+  closeAllDropdowns() {
+    document.querySelectorAll('.dropdown-trigger').forEach(t => t.setAttribute('aria-expanded', 'false'));
+    document.querySelectorAll('.dropdown-menu').forEach(m => m.style.display = 'none');
   },
 
-  setupAddLibrary() {
-    const btn = document.getElementById('add-library-btn');
-    if (btn) btn.addEventListener('click', () => this.showAddLibraryModal());
+  setupKeyboard() {
+    document.addEventListener('keydown', (e) => {
+      if (e.key === '/' && !e.target.matches('input, textarea, select')) {
+        e.preventDefault();
+        document.getElementById('global-search')?.focus();
+      }
+      if (e.key === 'Escape') {
+        this.closeAllDropdowns();
+        this.hideSearchResults();
+        const modal = document.getElementById('modal-container');
+        if (modal && modal.innerHTML.trim()) {
+          modal.innerHTML = '';
+        }
+      }
+    });
   },
 
-  setActive(page) {
+  handleAction(action) {
+    if (action === 'add-location') {
+      this.showAddLocationModal();
+    } else if (action === 'scan-all') {
+      this.scanAllLocations();
+    } else if (action === 'scan') {
+      this.nav('scan-history');
+    }
+  },
+
+  setActiveNav(page) {
     document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-    const active = document.querySelector(`.nav-item[data-page="${page}"]`);
-    if (active) active.classList.add('active');
+    const targets = ['.nav-item[data-page="' + page + '"]', '.nav-item[data-action="' + page + '"]'];
+    for (const sel of targets) {
+      const el = document.querySelector(sel);
+      if (el) { el.classList.add('active'); break; }
+    }
   },
 
   nav(page, params = {}) {
     this.currentPage = page;
-    this.setActive(page);
+    this.setActiveNav(page);
+    this.closeAllDropdowns();
+    this.hideSearchResults();
+
     const container = document.getElementById('page-container');
-    if (!container) return;
+    if (!container) { console.error('page-container not found'); return; }
+
     container.innerHTML = '';
-    
-    const pages = {
-      'home': () => this.renderHome(container),
-      'movies': () => this.renderLibrary(container, 'movie', 'Movies', '🎬'),
-      'tvshows': () => this.renderLibrary(container, 'tv_show', 'TV Shows', '📺'),
-      'music': () => this.renderLibrary(container, 'music', 'Music', '🎵'),
-      'people': () => this.renderPeople(container),
-      'favorites': () => this.renderFavorites(container),
-      'watchlist': () => this.renderEmpty(container, '⭐', 'Watchlist', 'Your watchlist is empty'),
-      'collections': () => this.renderCollections(container),
-      'search': () => this.renderSearch(container, params),
-      'services': () => this.renderServices(container),
-      'statistics': () => this.renderStatistics(container),
-      'settings': () => this.renderSettings(container),
-      'browser': () => Browser.init(container),
-      'browser-about': () => this.renderAbout(container),
-      'browser-settings': () => this.renderBrowserSettings(container),
-      'browser-history': () => this.renderEmpty(container, '🕐', 'Browser History', 'No browsing history'),
-      'browser-bookmarks': () => this.renderEmpty(container, '⭐', 'Bookmarks', 'No bookmarks yet'),
-      'browser-downloads': () => this.renderEmpty(container, '⬇️', 'Downloads', 'No downloads'),
-      'library-manager': () => this.renderLibraryManager(container)
+
+    const pageRenderers = {
+      home: () => this.renderHome(container),
+      library: () => this.renderLibrary(container, params.type || 'all'),
+      locations: () => this.renderLocations(container),
+      search: () => this.renderSearch(container, params),
+      browser: () => this.renderBrowser(container),
+      player: () => this.renderPlayer(container),
+      services: () => this.renderServices(container),
+      settings: () => { if (typeof Settings !== 'undefined') Settings.init(container); else this.renderGenericSettings(container); },
+      scan_history: () => this.renderScanHistory(container),
+      scan_problems: () => this.renderScanProblems(container),
+      favorites: () => this.renderLibrary(container, 'favorite'),
+      statistics: () => this.renderStatistics(container),
+      activity: () => this.renderActivity(container),
+      help: () => this.renderHelp(container),
+      about: () => this.renderAbout(container),
+      diagnostics: () => this.renderDiagnostics(container)
     };
-    (pages[page] || pages['home'])();
+
+    (pageRenderers[page] || (() => {
+      container.innerHTML = `<div class="empty-state"><h2>${this.escapeHtml(page)}</h2><p>Page coming soon</p></div>`;
+    }))();
   },
 
-  async loadLibraries() {
+  renderHome(container) {
+    container.innerHTML = `
+      <div class="hero-section">
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+          <div class="hero-poster">
+            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:48px;background:var(--bg-tertiary);">🎬</div>
+          </div>
+          <div class="hero-info">
+            <h1 class="hero-title">Welcome to JMDB</h1>
+            <div class="hero-meta">Johnny's Media Database • v1.0.0</div>
+            <p class="hero-overview">Your personal media library manager. Add locations, scan your collection, and enjoy your movies, TV shows, and music in one place.</p>
+            <div class="hero-actions" style="display:flex;gap:12px;margin-top:16px;">
+              <button class="btn btn-primary" id="home-add-location">+ Add Location</button>
+              <button class="btn btn-secondary" id="home-explore">Explore Library</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      ${this.renderSection('Continue Watching', 'continue-row', 'library', { type: 'continue_watching' })}
+      ${this.renderSection('Recently Added', 'recent-row', 'library', { type: 'all' }, true)}
+      ${this.renderSection('Favorites', 'fav-row', 'library', { type: 'favorite' })}
+    `;
+
+    document.getElementById('home-add-location')?.addEventListener('click', () => this.nav('locations'));
+    document.getElementById('home-explore')?.addEventListener('click', () => this.nav('library', { type: 'all' }));
+
+    this.loadMediaRow('continue-row', `http://127.0.0.1:${this.port}/api/media/continue-watching?limit=10`);
+    this.loadMediaRow('recent-row', `http://127.0.0.1:${this.port}/api/media/recent?limit=10`);
+    this.loadMediaRow('fav-row', `http://127.0.0.1:${this.port}/api/media/favorites?limit=10`);
+  },
+
+  renderSection(title, rowId, navPage, navParams, scrollable = true) {
+    return `
+      <div class="section" style="margin-bottom:32px;">
+        <div class="section-header">
+          <h2 class="section-title">${title}</h2>
+          <span class="view-all" data-page="${navPage}" data-type="${navParams.type || ''}">View All →</span>
+        </div>
+        <div class="media-row ${scrollable ? '' : ''}" id="${rowId}">
+          <div class="empty-state" style="padding:20px;width:100%;">
+            <p>Loading...</p>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  async loadMediaRow(rowId, url) {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const items = data.items || [];
+      if (items.length > 0) {
+        row.innerHTML = items.map(item => this.mediaCard(item)).join('');
+      } else {
+        row.innerHTML = '<div class="empty-state" style="padding:20px;width:100%;"><p>No items found</p></div>';
+      }
+    } catch (e) {
+      console.error(`Failed to load ${rowId}:`, e);
+      row.innerHTML = '<div class="empty-state" style="padding:20px;width:100%;"><p>Failed to load</p></div>';
+    }
+  },
+
+  mediaCard(item, clickable = true) {
+    const colors = ['#1e3a5f', '#5f1e3a', '#3a5f1e', '#5f3a1e', '#3a1e5f', '#5f3a3a'];
+    const color = colors[item.id % colors.length];
+    const poster = item.artwork?.find(a => a.is_primary)?.url
+      || item.artwork?.[0]?.url
+      || '';
+    
+    const posterHTML = poster
+      ? `<img src="${this.escapeHtml(poster)}" alt="${this.escapeHtml(item.title)}" style="width:100%;height:100%;object-fit:cover;" loading="lazy">`
+      : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:32px;opacity:0.5;">${item.media_type === 'music' ? '🎵' : '🎬'}</div>`;
+
+    const clickHandler = clickable ? `onclick="App.loadPlayer(${item.id})"` : '';
+    const ctxClickHandler = clickable ? `oncontextmenu="App.showMediaContext(event, ${item.id})"` : '';
+
+    return `
+      <div class="media-card" ${clickHandler} ${ctxClickHandler} data-media-id="${item.id}">
+        <div class="card-poster" style="background:${color};">
+          ${posterHTML}
+        </div>
+        <div class="card-title" title="${this.escapeHtml(item.title)}">${this.escapeHtml(item.title)}</div>
+        <div class="card-meta">${item.year || 'N/A'} • ${this.escapeHtml(item.media_type)}</div>
+        ${item.favorite ? '<div class="card-fav">⭐</div>' : ''}
+      </div>
+    `;
+  },
+
+  renderLibrary(container, type) {
+    const titles = {
+      all: 'All Media', movie: 'Movies', tv_show: 'TV Shows', episode: 'Episodes',
+      collection: 'Collections', favorite: 'Favorites', recently_added: 'Recently Added',
+      recently_played: 'Recently Played', continue_watching: 'Continue Watching',
+      watched: 'Watched', unwatched: 'Unwatched'
+    };
+    const title = titles[type] || type;
+
+    container.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <h2>${title}</h2>
+        <div class="library-filters" style="display:flex;gap:8px;">
+          <select class="form-select" id="lib-sort" style="width:150px;" onchange="App.sortLibrary(this.value)">
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="title">Title A-Z</option>
+            <option value="rating">Rating</option>
+          </select>
+        </div>
+      </div>
+      <div id="lib-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;"></div>
+      <div id="lib-load-more" style="text-align:center;margin-top:24px;display:none;">
+        <button class="btn btn-secondary" onclick="App.loadMoreLibrary()">Load More</button>
+      </div>
+    `;
+    this.currentLibType = type;
+    this.currentLibOffset = 0;
+    this.loadLibraryGrid(type, 0);
+  },
+
+  async loadLibraryGrid(type, offset = 0) {
+    let url = `http://127.0.0.1:${this.port}/api/media?limit=20&offset=${offset}`;
+    if (type !== 'all' && ['movie', 'tv_show', 'episode'].includes(type)) {
+      url += `&media_type=${type}`;
+    }
+
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      const grid = document.getElementById('lib-grid');
+      if (!grid) return;
+
+      const items = data.items || [];
+      if (offset === 0) grid.innerHTML = '';
+
+      if (items.length > 0) {
+        grid.insertAdjacentHTML('beforeend', items.map(i => this.mediaCard(i)).join(''));
+      } else if (offset === 0) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="empty-state-icon">📚</div><div class="empty-state-title">No media found</div><p>Add a location and scan to populate your library.</p></div>';
+      }
+
+      if (data.total > offset + items.length) {
+        document.getElementById('lib-load-more')?.style.display && (document.getElementById('lib-load-more').style.display = 'block');
+      }
+    } catch (e) {
+      console.error('Failed to load library:', e);
+      const grid = document.getElementById('lib-grid');
+      if (grid) grid.innerHTML = '<div class="empty-state"><p>Failed to load media</p></div>';
+    }
+  },
+
+  sortLibrary(by) {
+    console.log('Sort by:', by);
+    this.toast(`Sorting by ${by}`, 'info');
+    this.loadLibraryGrid(this.currentLibType || 'all', 0);
+  },
+
+  loadMoreLibrary() {
+    this.currentLibOffset = (this.currentLibOffset || 0) + 20;
+    this.loadLibraryGrid(this.currentLibType || 'all', this.currentLibOffset);
+  },
+
+  renderLocations(container) {
+    container.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <h2>Manage Locations</h2>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-sm btn-secondary" onclick="App.scanAllLocations()">Scan All</button>
+          <button class="btn btn-primary" onclick="App.showAddLocationModal()">+ Add Location</button>
+        </div>
+      </div>
+      <div id="locations-list" style="display:flex;flex-direction:column;gap:12px;"></div>
+    `;
+    this.loadLocations();
+  },
+
+  async loadLocations() {
+    const list = document.getElementById('locations-list');
+    if (!list) return;
     try {
       const res = await fetch(`http://127.0.0.1:${this.port}/api/library`);
       const data = await res.json();
-      this.libraries = data.libraries || [];
-    } catch (e) { 
-      console.error("Failed to load libraries", e); 
-      this.libraries = [];
-    }
-  },
-
-  async renderHome(container) {
-    container.innerHTML = `
-      <div class="page-header">
-        <h1 class="page-title">Home</h1>
-        <p class="page-subtitle">Your library at a glance</p>
-      </div>
-      <div id="stats-area"></div>
-      <div id="recent-area"></div>
-    `;
-    await this.loadHomeStats();
-    await this.loadHomeRecent();
-  },
-
-  async loadHomeStats() {
-    const area = document.getElementById('stats-area');
-    if (!area) return;
-    try {
-      const res = await fetch(`http://127.0.0.1:${this.port}/api/media?limit=1000`);
-      const data = await res.json();
-      const items = data.items || [];
-      const movies = items.filter(i => i.media_type === 'movie').length;
-      const tv = items.filter(i => i.media_type === 'tv_show').length;
-      const music = items.filter(i => i.media_type === 'music').length;
-      area.innerHTML = `
-        <div class="stats-grid">
-          <div class="stat-card"><div class="stat-icon"></div><div><div class="stat-value">${movies}</div><div class="stat-label">Movies</div></div></div>
-          <div class="stat-card"><div class="stat-icon">📺</div><div><div class="stat-value">${tv}</div><div class="stat-label">TV Shows</div></div></div>
-          <div class="stat-card"><div class="stat-icon"></div><div><div class="stat-value">${music}</div><div class="stat-label">Music</div></div></div>
-        </div>`;
-    } catch (e) {
-      area.innerHTML = '<div class="stats-grid"><div class="stat-card"><div class="stat-icon">️</div><div><div class="stat-value">0</div><div class="stat-label">Backend unreachable</div></div></div></div>';
-    }
-  },
-
-  async loadHomeRecent() {
-    const area = document.getElementById('recent-area');
-    if (!area) return;
-    try {
-      const res = await fetch(`http://127.0.0.1:${this.port}/api/media/recent?limit=10`);
-      const data = await res.json();
-      if (data.items && data.items.length > 0) {
-        area.innerHTML = `<div class="section"><div class="section-header"><h2 class="section-title">Recently Added</h2></div><div class="card-grid">${data.items.map(i => this.mediaCard(i)).join('')}</div></div>`;
-      } else {
-        area.innerHTML = `<div class="section"><div class="section-header"><h2 class="section-title">Recently Added</h2></div><div class="empty-state"><div class="empty-state-icon">🎬</div><div class="empty-state-title">Your library is empty</div><p>Click "+ Add Library" to get started.</p></div></div>`;
-      }
-    } catch (e) { area.innerHTML = ''; }
-  },
-
-  mediaCard(item) {
-    const colors = ['#1e3a5f', '#5f1e3a', '#3a5f1e', '#5f3a1e'];
-    const color = colors[item.id % colors.length];
-    return `<div class="media-card" onclick="App.toast('Detail view for ${this.esc(item.title)} coming soon', 'info')"><div class="media-card-poster" style="background:linear-gradient(135deg, ${color}, #0f172a);"><div style="font-size:48px;opacity:0.3;"></div></div><div class="media-card-info"><div class="media-card-title">${this.esc(item.title)}</div><div class="media-card-meta">${item.year || ''} · ${item.media_type}</div></div></div>`;
-  },
-
-  async renderLibrary(container, type, title, icon) {
-    container.innerHTML = `<div class="page-header"><h1 class="page-title">${title}</h1></div><div id="lib-content"><div class="empty-state"><div class="loading-spinner"></div></div></div>`;
-    try {
-      const res = await fetch(`http://127.0.0.1:${this.port}/api/media?limit=100&media_type=${type}`);
-      const data = await res.json();
-      const content = document.getElementById('lib-content');
-      if (data.items && data.items.length > 0) {
-        content.innerHTML = `<div class="card-grid">${data.items.map(i => this.mediaCard(i)).join('')}</div>`;
-      } else {
-        content.innerHTML = `<div class="empty-state"><div class="empty-state-icon">${icon}</div><div class="empty-state-title">No ${title.toLowerCase()} yet</div><p>Scan a library folder to add ${title.toLowerCase()}.</p></div>`;
-      }
-    } catch (e) {}
-  },
-
-  async renderPeople(container) {
-    container.innerHTML = `<div class="page-header"><h1 class="page-title">People</h1></div><div class="empty-state"><div class="empty-state-icon">👤</div><div class="empty-state-title">No people in database</div></div>`;
-  },
-
-  async renderFavorites(container) {
-    container.innerHTML = `<div class="page-header"><h1 class="page-title">Favorites</h1></div><div class="empty-state"><div class="empty-state-icon">❤️</div><div class="empty-state-title">No favorites yet</div></div>`;
-  },
-
-  async renderCollections(container) {
-    container.innerHTML = `<div class="page-header"><h1 class="page-title">Collections</h1></div><div class="empty-state"><div class="empty-state-icon">📁</div><div class="empty-state-title">No collections yet</div></div>`;
-  },
-
-  async renderSearch(container, params) {
-    const q = params.q || '';
-    container.innerHTML = `<div class="page-header"><h1 class="page-title">Search: "${this.esc(q)}"</h1></div><div id="search-results"></div>`;
-    if (q) {
-      try {
-        const res = await fetch(`http://127.0.0.1:${this.port}/api/search?q=${encodeURIComponent(q)}`);
-        const data = await res.json();
-        const area = document.getElementById('search-results');
-        let html = '';
-        if (data.media && data.media.length > 0) {
-          html += `<div class="section"><div class="section-header"><h2 class="section-title">Media (${data.media.length})</h2></div><div class="card-grid">${data.media.map(i => this.mediaCard(i)).join('')}</div></div>`;
-        }
-        if (!html) html = `<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">No results</div></div>`;
-        area.innerHTML = html;
-      } catch (e) {}
-    }
-  },
-
-  async renderServices(container) {
-    container.innerHTML = `<div class="page-header"><h1 class="page-title">Services</h1><p class="page-subtitle">Configure external service integrations</p></div><div id="svc-content"></div>`;
-    try {
-      const res = await fetch(`http://127.0.0.1:${this.port}/api/services`);
-      const data = await res.json();
-      const content = document.getElementById('svc-content');
-      content.innerHTML = `<div class="settings-section"><div class="settings-section-title">Metadata Providers</div>${(data.services || []).filter(s => s.category === 'metadata').map(s => this.serviceCard(s)).join('')}</div><div class="settings-section"><div class="settings-section-title">Integrations</div>${(data.services || []).filter(s => s.category === 'integration').map(s => this.serviceCard(s)).join('')}</div>`;
-    } catch (e) {}
-  },
-
-  serviceCard(s) {
-    // Real brand logos
-    const logos = {
-      'YouTube': 'https://www.youtube.com/s/desktop/1234567/img/favicon_144x144.png',
-      'Spotify': 'https://www.spotify.com/favicon.ico',
-      'Telegram': 'https://telegram.org/favicon.ico',
-      'TV Time': 'https://www.tvtime.com/favicon.ico',
-      'TMDB': 'https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-2e7b30f73a401112541bb54791b2b7e481d48e2715360978976e4f375b1bb247.png',
-      'OMDb': 'https://www.omdbapi.com/favicon.ico',
-      'IMDb': 'https://www.imdb.com/favicon.ico'
-    };
-    
-    const logoUrl = logos[s.name] || '';
-    
-    return `<div class="settings-item" style="padding:16px;">
-      <div style="display:flex;align-items:center;gap:16px;">
-        ${logoUrl ? `<img src="${logoUrl}" alt="${s.name}" style="width:40px;height:40px;border-radius:8px;">` : '<div style="width:40px;height:40px;background:var(--bg-tertiary);border-radius:8px;"></div>'}
-        <div>
-          <div class="settings-item-title">${this.esc(s.name)}</div>
-          <div class="settings-item-desc">${s.health_status || 'unknown'} · ${s.enabled ? 'Enabled' : 'Disabled'}</div>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-secondary btn-sm" onclick="App.testService(${s.id})">Test</button>
-        <label class="toggle"><input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="App.toggleService(${s.id}, this.checked)"><span class="toggle-slider"></span></label>
-      </div>
-    </div>`;
-  },
-
-  async testService(id) {
-    try {
-      await fetch(`http://127.0.0.1:${this.port}/api/services/${id}/test`, { method: 'POST' });
-      this.toast('Service tested', 'success');
-      this.nav('services');
-    } catch (e) { this.toast('Test failed', 'error'); }
-  },
-
-  async toggleService(id, enabled) {
-    try {
-      await fetch(`http://127.0.0.1:${this.port}/api/services/${id}`, { method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ enabled }) });
-      this.toast(`Service ${enabled ? 'enabled' : 'disabled'}`, 'success');
-    } catch (e) {}
-  },
-
-  async renderStatistics(container) {
-    container.innerHTML = `<div class="page-header"><h1 class="page-title">Statistics</h1></div><div class="empty-state"><div class="empty-state-icon">📊</div><div class="empty-state-title">Statistics will appear here</div></div>`;
-  },
-
-  renderSettings(container) {
-    container.innerHTML = `
-      <div class="page-header"><h1 class="page-title">Settings</h1></div>
-      <div class="settings-section"><div class="settings-section-title">General</div>
-        <div class="settings-item"><div><div class="settings-item-title">Theme</div><div class="settings-item-desc">Choose your preferred theme</div></div><select class="form-select" style="width:200px;" onchange="App.setTheme(this.value)"><option value="dark">Dark</option><option value="light">Light</option></select></div>
-      </div>
-      <div class="settings-section"><div class="settings-section-title">Metadata API Keys</div>
-        <div class="settings-item"><div><div class="settings-item-title">TMDB API Key</div><div class="settings-item-desc">Required for real posters and metadata</div></div><input type="password" class="form-input" id="set-tmdb" placeholder="Enter TMDB API Key" style="width:300px;"></div>
-        <div class="settings-item"><div><div class="settings-item-title">Auto-fetch on Scan</div><div class="settings-item-desc">Automatically search TMDB when adding new files</div></div><label class="toggle"><input type="checkbox" id="set-autofetch" checked><span class="toggle-slider"></span></label></div>
-        <div style="margin-top:16px; text-align:right;"><button class="btn btn-primary" onclick="App.saveMetadataSettings()">Save Metadata Settings</button></div>
-      </div>`;
-    this.loadMetadataSettings();
-  },
-
-  async loadMetadataSettings() {
-    try {
-      const res = await fetch(`http://127.0.0.1:${this.port}/api/settings/metadata`);
-      const data = await res.json();
-      const tmdbInput = document.getElementById("set-tmdb");
-      const autoFetchInput = document.getElementById("set-autofetch");
-      if (tmdbInput && data.tmdb_api_key) tmdbInput.value = data.tmdb_api_key;
-      if (autoFetchInput) autoFetchInput.checked = data.auto_fetch_metadata;
-    } catch (e) {}
-  },
-
-  async saveMetadataSettings() {
-    const tmdbKey = document.getElementById("set-tmdb").value.trim();
-    const autoFetch = document.getElementById("set-autofetch").checked;
-    try {
-      await fetch(`http://127.0.0.1:${this.port}/api/settings/metadata`, {
-        method: "PATCH",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ tmdb_api_key: tmdbKey, auto_fetch_metadata: autoFetch })
-      });
-      this.toast("Metadata settings saved successfully!", "success");
-    } catch (e) {
-      this.toast("Failed to save settings", "error");
-    }
-  },
-
-  setTheme(theme) {
-    document.body.className = `theme-${theme}`;
-    this.toast(`Theme: ${theme}`, 'success');
-  },
-
-  renderBrowserSettings(container) {
-    container.innerHTML = `<div class="page-header"><h1 class="page-title">Browser Settings</h1></div><div class="settings-section"><div class="settings-section-title">General</div><div class="settings-item"><div><div class="settings-item-title">Homepage</div></div><input type="text" class="form-input" value="https://www.google.com" style="width:300px;"></div></div>`;
-  },
-
-  renderAbout(container) {
-    container.innerHTML = `
-      <div style="text-align:center;padding:40px;">
-        <div style="width:120px;height:120px;background:linear-gradient(135deg,var(--accent),var(--accent-hover));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:60px;font-weight:bold;color:#000;margin:0 auto 24px;">J</div>
-        <h1 style="font-size:32px;font-weight:700;margin-bottom:4px;">JMDB</h1>
-        <p style="font-size:16px;color:var(--text-muted);margin-bottom:32px;">Johnny's Media Database</p>
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;max-width:500px;margin:0 auto 32px;text-align:left;">
-          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;padding:12px 16px;"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Application Version</div><div style="font-size:14px;font-family:monospace;">1.0.0</div></div>
-          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;padding:12px 16px;"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Electron Version</div><div style="font-size:14px;font-family:monospace;" id="ab-elec">Loading...</div></div>
-          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;padding:12px 16px;"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Python Version</div><div style="font-size:14px;font-family:monospace;" id="ab-py">Loading...</div></div>
-          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;padding:12px 16px;"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Browser Engine</div><div style="font-size:14px;font-family:monospace;">Chromium</div></div>
-        </div>
-      </div>`;
-    if (window.jmdb && window.jmdb.getAppVersion) {
-      window.jmdb.getAppVersion().then(v => {
-        document.getElementById('ab-elec').textContent = v.electron || 'N/A';
-      }).catch(() => {});
-    }
-    fetch(`http://127.0.0.1:${this.port}/api/health`).then(r=>r.json()).then(d => { document.getElementById('ab-py').textContent = d.python || 'N/A'; }).catch(() => {});
-  },
-
-  renderEmpty(container, icon, title, text) {
-    container.innerHTML = `<div class="page-header"><h1 class="page-title">${title}</h1></div><div class="empty-state"><div class="empty-state-icon">${icon}</div><div class="empty-state-title">${title}</div><p>${text}</p></div>`;
-  },
-
-  async renderLibraryManager(container) {
-    await this.loadLibraries();
-    container.innerHTML = `
-      <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;">
-        <div><h1 class="page-title">Library Manager</h1><p class="page-subtitle">Manage your media locations</p></div>
-        <button class="btn btn-primary" onclick="App.showAddLibraryModal()">+ Add Library</button>
-      </div>
-      <div id="lib-list">
-        ${this.libraries.length === 0 ? '<div class="empty-state"><div class="empty-state-icon">📁</div><div class="empty-state-title">No libraries added</div><p>Click "+ Add Library" to start.</p></div>' : 
-          this.libraries.map(lib => `
-            <div class="settings-section" style="display:flex;justify-content:space-between;align-items:center;">
-              <div>
-                <div class="settings-item-title">${this.esc(lib.name)}</div>
-                <div class="settings-item-desc">${this.esc(lib.path)} · ${lib.media_type} · Status: ${lib.scan_status}</div>
-              </div>
-              <div style="display:flex;gap:8px;">
-                <button class="btn btn-secondary btn-sm" onclick="App.scanLibrary(${lib.id})">Scan</button>
-                <button class="btn btn-danger btn-sm" onclick="App.deleteLibrary(${lib.id})">Delete</button>
-              </div>
+      const libs = data.libraries || [];
+      if (libs.length > 0) {
+        list.innerHTML = libs.map(lib => `
+          <div class="location-item">
+            <div class="loc-info">
+              <h3>${this.escapeHtml(lib.name)}</h3>
+              <p>${this.escapeHtml(lib.path)} • ${lib.media_type} • Status: ${lib.scan_status}</p>
+              ${lib.last_scan_at ? `<p style="font-size:11px;color:var(--text-muted);">Last scan: ${new Date(lib.last_scan_at).toLocaleString()}</p>` : ''}
             </div>
-          `).join('')}
-      </div>
-    `;
+            <div style="display:flex;gap:8px;flex-shrink:0;">
+              <button class="btn btn-sm btn-primary" onclick="App.scanLocation(${lib.id})">Scan</button>
+              <button class="btn btn-sm btn-danger" onclick="App.deleteLocation(${lib.id})">Remove</button>
+            </div>
+          </div>
+        `).join('');
+      } else {
+        list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📁</div><div class="empty-state-title">No locations yet</div><p>Add a media folder to start scanning your collection.</p></div>';
+      }
+    } catch (e) {
+      console.error('Failed to load locations:', e);
+      list.innerHTML = '<div class="empty-state"><p>Failed to load locations</p></div>';
+    }
   },
 
-  showAddLibraryModal() {
-    const body = `
-      <div class="form-group">
-        <label class="form-label">Library Name</label>
-        <input type="text" class="form-input" id="lib-name" placeholder="My Movies">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Media Type</label>
-        <select class="form-select" id="lib-type">
-          <option value="movie">Movies</option>
-          <option value="tv_show">TV Shows</option>
-          <option value="music">Music</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Folder Path</label>
-        <div style="display:flex;gap:8px;">
-          <input type="text" class="form-input" id="lib-path" placeholder="/path/to/media" style="flex:1;">
-          <button class="btn btn-secondary" onclick="App.browseFolder()">Browse</button>
+  showAddLocationModal() {
+    const modal = document.getElementById('modal-container');
+    if (!modal) return;
+    modal.innerHTML = `
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Add Location</h3>
+          <button class="modal-close" onclick="App.closeModal()" aria-label="Close">✕</button>
         </div>
-      </div>`;
-    const footer = `<button class="btn btn-secondary" onclick="document.getElementById('active-modal').remove()">Cancel</button><button class="btn btn-primary" onclick="App.createLibrary()">Create Library</button>`;
-    this.showModal('Add Library', body, footer);
+        <div class="modal-body">
+          <div style="margin-bottom:16px;">
+            <label style="display:block;margin-bottom:8px;font-size:14px;font-weight:500;">Name</label>
+            <input type="text" id="loc-name" class="form-input" placeholder="My Movies" autofocus>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="display:block;margin-bottom:8px;font-size:14px;font-weight:500;">Type</label>
+            <select id="loc-type" class="form-select">
+              <option value="movie">Movies</option>
+              <option value="tv_show">TV Shows</option>
+              <option value="music">Music</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="display:block;margin-bottom:8px;font-size:14px;font-weight:500;">Path</label>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="loc-path" class="form-input" placeholder="/path/to/media">
+              <button class="btn btn-sm btn-secondary" onclick="App.browseFolder()">Browse</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="App.closeModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="App.createLocation()">Add Location</button>
+        </div>
+      </div>
+    `;
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+    document.getElementById('loc-name')?.focus();
+  },
+
+  closeModal() {
+    const modal = document.getElementById('modal-container');
+    if (modal) {
+      modal.innerHTML = '';
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+    }
   },
 
   async browseFolder() {
@@ -376,107 +530,583 @@ const App = {
       try {
         const path = await window.jmdb.openDirectory();
         if (path) {
-          document.getElementById('lib-path').value = path;
+          const pathInput = document.getElementById('loc-path');
+          if (pathInput) pathInput.value = path;
         }
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        this.toast('Failed to open folder dialog', 'error');
+      }
     } else {
-      this.toast('File dialog not available', 'error');
+      this.toast('File dialog not available - run in Electron', 'error');
     }
   },
 
-  async createLibrary() {
-    const name = document.getElementById('lib-name').value.trim();
-    const type = document.getElementById('lib-type').value;
-    const path = document.getElementById('lib-path').value.trim();
-    if (!name || !path) { this.toast('Name and Path are required', 'error'); return; }
+  async createLocation() {
+    const name = document.getElementById('loc-name')?.value.trim();
+    const type = document.getElementById('loc-type')?.value || 'movie';
+    const path = document.getElementById('loc-path')?.value.trim();
+
+    if (!path) {
+      this.toast('Please select a media folder', 'error');
+      return;
+    }
+
+    // Name is optional. If empty, derive it from the selected path.
+    const finalName = name || path.replace(/\\/g, '/').split('/').filter(Boolean).pop() || 'Media';
+
     try {
-      const res = await fetch(`http://127.0.0.1:${this.port}/api/library`, { 
-        method: 'POST', 
-        headers: {'Content-Type': 'application/json'}, 
-        body: JSON.stringify({ name, media_type: type, path }) 
+      const res = await fetch(`http://127.0.0.1:${this.port}/api/library`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: finalName, media_type: type, path })
       });
-      const data = await res.json();
-      this.toast(`Library "${data.name}" created successfully!`, 'success');
-      document.getElementById('active-modal').remove();
-      await this.loadLibraries();
-      if (this.currentPage === 'library-manager') this.renderLibraryManager(document.getElementById('page-container'));
-    } catch (e) { 
-      console.error(e);
-      this.toast('Failed to create library', 'error'); 
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      this.toast('Location added successfully', 'success');
+      this.closeModal();
+      this.nav('locations');
+    } catch (e) {
+      console.error('Failed to add location:', e);
+      this.toast(`Failed to add location: ${e.message}`, 'error');
     }
   },
 
-  async scanLibrary(id) {
+  async scanLocation(id) {
+    const btn = event?.target;
+    if (btn) { btn.disabled = true; btn.textContent = 'Scanning...'; }
     this.toast('Scan started...', 'info');
     try {
       const res = await fetch(`http://127.0.0.1:${this.port}/api/library/${id}/scan`, { method: 'POST' });
-      this.toast('Scan started in background. Check status in a moment.', 'success');
-      
-      // Poll for completion
-      const checkStatus = async () => {
-        const statusRes = await fetch(`http://127.0.0.1:${this.port}/api/library/scan-status`);
-        const status = await statusRes.json();
-        if (!status.active) {
-          this.toast(`Scan complete! Added ${status.media_added} items.`, 'success');
-          await this.loadLibraries();
-          if (this.currentPage === 'library-manager') this.renderLibraryManager(document.getElementById('page-container'));
-        } else {
-          setTimeout(checkStatus, 2000);
-        }
-      };
-      setTimeout(checkStatus, 2000);
-      
-    } catch (e) { 
-      console.error(e);
-      this.toast('Scan failed', 'error'); 
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const interval = setInterval(async () => {
+        try {
+          const status = await fetch(`http://127.0.0.1:${this.port}/api/library/scan-status`).then(r => r.json());
+          if (!status.active) {
+            clearInterval(interval);
+            if (btn) { btn.disabled = false; btn.textContent = 'Scan'; }
+            this.toast('Scan completed', 'success');
+            this.loadLocations();
+          }
+        } catch (_) { clearInterval(interval); }
+      }, 2000);
+    } catch (e) {
+      console.error('Scan failed:', e);
+      this.toast('Scan failed', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Scan'; }
     }
   },
 
-  async deleteLibrary(id) {
-    if (!confirm('Are you sure? This will remove the library but keep your media files.')) return;
+  async scanAllLocations() {
     try {
-      await fetch(`http://127.0.0.1:${this.port}/api/library/${id}`, { method: 'DELETE' });
-      this.toast('Library deleted', 'success');
-      await this.loadLibraries();
-      if (this.currentPage === 'library-manager') this.renderLibraryManager(document.getElementById('page-container'));
+      const res = await fetch(`http://127.0.0.1:${this.port}/api/library`);
+      const data = await res.json();
+      const libs = data.libraries || [];
+      if (libs.length === 0) {
+        this.toast('No locations to scan', 'error');
+        return;
+      }
+      for (const lib of libs) {
+        await fetch(`http://127.0.0.1:${this.port}/api/library/${lib.id}/scan`, { method: 'POST' });
+      }
+      this.toast('Scanning all locations...', 'info');
+      const interval = setInterval(async () => {
+        try {
+          const status = await fetch(`http://127.0.0.1:${this.port}/api/library/scan-status`).then(r => r.json());
+          if (!status.active) {
+            clearInterval(interval);
+            this.toast('All scans completed', 'success');
+            this.loadLocations();
+          }
+        } catch (_) { clearInterval(interval); }
+      }, 2000);
+    } catch (e) {
+      this.toast('Failed to start scan', 'error');
+    }
+  },
+
+  async deleteLocation(id) {
+    if (!confirm('Remove this location? Media items will remain in the database.')) return;
+    try {
+      const res = await fetch(`http://127.0.0.1:${this.port}/api/library/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      this.toast('Location removed', 'success');
+      this.loadLocations();
+    } catch (e) {
+      console.error('Delete failed:', e);
+      this.toast('Failed to remove location', 'error');
+    }
+  },
+
+  renderSearch(container, params) {
+    const initialQuery = params.q || '';
+    container.innerHTML = `
+      <div style="margin-bottom:24px;">
+        <h2>Search</h2>
+        <div class="search-box" style="margin-top:12px;max-width:600px;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="page-search-input" class="form-input" placeholder="Search media and people..." value="${this.escapeHtml(initialQuery)}" style="flex:1;background:var(--bg-tertiary);border:1px solid var(--border-color);color:var(--text-primary);padding:10px 16px;border-radius:20px;outline:none;">
+        </div>
+      </div>
+      <div id="search-results-area"></div>
+    `;
+
+    const input = document.getElementById('page-search-input');
+    if (input) {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const q = input.value.trim();
+          if (q.length >= 2) this.performSearch(q);
+        }
+        if (e.key === 'Escape') {
+          input.value = '';
+          document.getElementById('search-results-area').innerHTML = '';
+        }
+      });
+      input.addEventListener('input', () => {
+        clearTimeout(this.searchDebounce);
+        const q = input.value.trim();
+        this.searchDebounce = setTimeout(() => {
+          if (q.length >= 2) this.performSearch(q);
+        }, 400);
+      });
+      if (initialQuery) {
+        setTimeout(() => this.performSearch(initialQuery), 100);
+      }
+    }
+  },
+
+  async performSearch(query) {
+    const area = document.getElementById('search-results-area');
+    if (!area) return;
+    area.innerHTML = '<div class="empty-state"><p>Searching...</p></div>';
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${this.port}/api/search?q=${encodeURIComponent(query)}&limit=50`);
+      const data = await res.json();
+
+      const mediaItems = data.media || [];
+      const peopleItems = data.people || [];
+
+      if (mediaItems.length === 0 && peopleItems.length === 0) {
+        area.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">No results for "${this.escapeHtml(query)}"</div><p>Try a different search term.</p></div>`;
+        return;
+      }
+
+      let html = '';
+      if (mediaItems.length > 0) {
+        html += `<h3 style="margin-bottom:12px;">Media (${mediaItems.length})</h3>`;
+        html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;margin-bottom:24px;">`;
+        html += mediaItems.map(item => this.mediaCard({
+          id: item.id, title: item.title, year: item.year, media_type: item.media_type,
+          favorite: false, artwork: []
+        })).join('');
+        html += '</div>';
+      }
+
+      if (peopleItems.length > 0) {
+        html += `<h3 style="margin-bottom:12px;">People (${peopleItems.length})</h3>`;
+        html += `<div style="display:flex;flex-direction:column;gap:8px;">`;
+        html += peopleItems.map(p => `
+          <div class="service-card" style="cursor:pointer;" onclick="App.toast('Person page coming soon', 'info')">
+            <div class="service-info">
+              <h3>${this.escapeHtml(p.name)}</h3>
+            </div>
+          </div>
+        `).join('');
+        html += '</div>';
+      }
+
+      area.innerHTML = html;
+    } catch (e) {
+      console.error('Search failed:', e);
+      area.innerHTML = '<div class="empty-state"><p>Search failed. Is the backend running?</p></div>';
+    }
+  },
+
+  hideSearchResults() {
+    const results = document.getElementById('search-results');
+    if (results) results.style.display = 'none';
+  },
+
+  renderBrowser(container) {
+    container.innerHTML = '<div id="browser-host" style="height:100%;"></div>';
+    setTimeout(() => {
+      if (typeof Browser !== 'undefined') {
+        Browser.init(document.getElementById('browser-host'));
+      } else {
+        container.innerHTML = '<div class="empty-state"><p>Browser module not loaded</p></div>';
+      }
+    }, 100);
+  },
+
+  renderPlayer(container) {
+    container.innerHTML = `
+      <div class="player-layout" style="display:flex;height:100%;gap:0;">
+        <div style="flex:1;display:flex;flex-direction:column;background:#000;min-width:0;">
+          <div id="player-video-area" style="flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;">
+            <video id="player-video" style="width:100%;height:100%;object-fit:contain;display:none;" controlslist="nodownload noremoteplayback"></video>
+            <div id="player-placeholder" style="text-align:center;color:var(--text-muted);">
+              <div style="font-size:72px;margin-bottom:16px;">▶</div>
+              <h2>Select a media item to play</h2>
+              <p style="margin-top:8px;font-size:14px;">Click on any movie or TV show from the library</p>
+            </div>
+          </div>
+          <div class="player-controls" id="player-controls">
+            <div class="player-progress" id="player-progress-bar" style="cursor:pointer;padding:8px 16px 4px;">
+              <div class="progress-track" style="width:100%;height:4px;background:rgba(255,255,255,0.2);border-radius:2px;position:relative;">
+                <div id="progress-fill" style="height:100%;background:var(--accent);border-radius:2px;width:0%;position:absolute;top:0;left:0;"></div>
+              </div>
+            </div>
+            <div class="player-buttons" style="display:flex;align-items:center;gap:12px;padding:8px 16px;">
+              <button class="btn btn-secondary btn-sm" id="btn-play" onclick="Player.togglePlay()" title="Play/Pause">▶</button>
+              <button class="btn btn-secondary btn-sm" id="btn-stop" onclick="Player.stop()" title="Stop">⏹</button>
+              <div class="player-time" id="player-time" style="color:white;font-size:12px;min-width:120px;text-align:center;">--:-- / --:--</div>
+              <div style="flex:1;"></div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="color:white;font-size:14px;">🔊</span>
+                <input type="range" id="volume-slider" min="0" max="100" value="80" onchange="Player.setVolume(this.value)" style="width:80px;">
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-fullscreen" onclick="Player.toggleFullscreen()" title="Fullscreen">⛶</button>
+            </div>
+            <div class="player-title-bar" style="padding:4px 16px;background:rgba(0,0,0,0.5);display:flex;justify-content:space-between;align-items:center;">
+              <span id="player-title" style="color:white;font-size:14px;font-weight:500;">No media selected</span>
+              <select id="player-backend-select" onchange="Player.setBackend(this.value)" style="background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:4px;padding:4px 8px;font-size:12px;">
+                <option value="mpv">MPV</option>
+                <option value="vlc">VLC</option>
+                <option value="auto">Auto</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="player-sidebar" style="width:300px;background:var(--bg-secondary);border-left:1px solid var(--border-color);overflow-y:auto;padding:16px;">
+          <h3 style="margin-bottom:16px;">Recently Played</h3>
+          <div id="player-recent-list">
+            <div class="empty-state" style="padding:20px;"><p style="font-size:12px;">No recent playback</p></div>
+          </div>
+        </div>
+      </div>
+    `;
+    if (typeof Player !== 'undefined') {
+      Player.init(container);
+    }
+  },
+
+  loadPlayer(mediaId) {
+    this.nav('player');
+    setTimeout(() => {
+      if (typeof Player !== 'undefined' && Player.loadMedia) {
+        Player.loadMedia(mediaId);
+      }
+    }, 200);
+  },
+
+  showMediaContext(e, mediaId) {
+    e.preventDefault();
+    const menu = document.getElementById('context-menu');
+    if (!menu) return;
+
+    menu.innerHTML = `
+      <div class="context-menu-item" onclick="App.loadPlayer(${mediaId});App.hideContextMenu();">▶ Play</div>
+      <div class="context-menu-item" onclick="App.toast('Details coming soon', 'info');App.hideContextMenu();">ℹ Details</div>
+      <div class="context-sep"></div>
+      <div class="context-menu-item" onclick="App.toast('Edit coming soon', 'info');App.hideContextMenu();">✏ Edit</div>
+      <div class="context-menu-item" onclick="App.toast('Fetch metadata coming soon', 'info');App.hideContextMenu();">🏷 Fetch Metadata</div>
+    `;
+
+    menu.style.display = 'block';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+    menu.style.visibility = 'visible';
+    menu.setAttribute('aria-hidden', 'false');
+  },
+
+  hideContextMenu() {
+    const menu = document.getElementById('context-menu');
+    if (menu) {
+      menu.style.display = 'none';
+      menu.style.visibility = 'hidden';
+      menu.setAttribute('aria-hidden', 'true');
+    }
+  },
+
+  renderServices(container) {
+    container.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <h2>Services</h2>
+        <button class="btn btn-sm btn-secondary" onclick="App.loadServices()">Refresh</button>
+      </div>
+      <div class="services-grid" id="services-grid">
+        <div class="empty-state"><p>Loading services...</p></div>
+      </div>
+    `;
+    this.loadServices();
+  },
+
+  async loadServices() {
+    const grid = document.getElementById('services-grid');
+    if (!grid) return;
+    try {
+      const res = await fetch(`http://127.0.0.1:${this.port}/api/services`);
+      const data = await res.json();
+      const services = data.services || [];
+
+      if (services.length === 0) {
+        grid.innerHTML = '<div class="empty-state"><p>No services configured</p></div>';
+        return;
+      }
+
+      grid.innerHTML = services.map(s => {
+        const statusColor = s.health_status === 'healthy' ? 'var(--success)' : s.health_status === 'unhealthy' ? 'var(--danger)' : 'var(--text-muted)';
+        return `
+          <div class="service-card">
+            <div class="service-info">
+              <h3>${this.escapeHtml(s.name)}</h3>
+              <p style="color:${statusColor};font-size:12px;">● ${s.health_status || 'unknown'} ${s.enabled ? '• Enabled' : '• Disabled'}</p>
+              ${s.category ? `<p style="font-size:11px;color:var(--text-muted);margin-top:4px;">${this.escapeHtml(s.category)}</p>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">
+              <label class="toggle">
+                <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="App.toggleService(${s.id}, this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+              <button class="btn btn-sm btn-secondary" onclick="App.testService(${s.id})">Test</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    } catch (e) {
+      console.error('Failed to load services:', e);
+      grid.innerHTML = '<div class="empty-state"><p>Failed to load services</p></div>';
+    }
+  },
+
+  async testService(id) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${this.port}/api/services/${id}/test`, { method: 'POST' });
+      const data = await res.json();
+      if (data.healthy) {
+        this.toast('Service is healthy', 'success');
+      } else {
+        this.toast('Service test failed', 'error');
+      }
+      this.loadServices();
+    } catch (e) {
+      this.toast('Test failed', 'error');
+    }
+  },
+
+  async toggleService(id, enabled) {
+    try {
+      await fetch(`http://127.0.0.1:${this.port}/api/services/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      });
+      this.toast(`Service ${enabled ? 'enabled' : 'disabled'}`, 'success');
     } catch (e) {
       console.error(e);
-      this.toast('Failed to delete library', 'error');
+      this.toast('Failed to update service', 'error');
     }
   },
 
-  showModal(title, body, footer) {
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.id = 'active-modal';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:1000;';
-    overlay.innerHTML = `<div style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;"><div style="padding:20px 24px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;"><h3 style="font-size:18px;font-weight:600;">${this.esc(title)}</h3><button onclick="document.getElementById('active-modal').remove()" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;">✕</button></div><div style="padding:24px;">${body}</div>${footer ? `<div style="padding:16px 24px;border-top:1px solid var(--border-color);display:flex;justify-content:flex-end;gap:8px;">${footer}</div>` : ''}</div>`;
-    document.body.appendChild(overlay);
+  renderGenericSettings(container) {
+    container.innerHTML = `
+      <h2 style="margin-bottom:24px;">Settings</h2>
+      <div class="settings-section">
+        <div class="settings-section-title">General</div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-label">Theme</div>
+            <div class="setting-desc">Switch between dark and light mode</div>
+          </div>
+          <button class="btn btn-sm btn-secondary" onclick="App.toggleTheme()">Toggle Theme</button>
+        </div>
+      </div>
+    `;
   },
 
-  toast(msg, type = 'info') {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    const icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
-    toast.innerHTML = `<span>${icons[type] || ''}</span><span>${this.esc(msg)}</span>`;
-    container.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+  renderStatistics(container) {
+    container.innerHTML = `
+      <h2 style="margin-bottom:24px;">Statistics</h2>
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card"><div class="stat-value" id="stat-total">-</div><div class="stat-label">Total Media</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-movies">-</div><div class="stat-label">Movies</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-tv">-</div><div class="stat-label">TV Shows</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-favs">-</div><div class="stat-label">Favorites</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-locations">-</div><div class="stat-label">Locations</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-played">-</div><div class="stat-label">Played</div></div>
+      </div>
+    `;
+    this.loadStatistics();
+  },
+
+  async loadStatistics() {
+    try {
+      const [mediaRes, libRes] = await Promise.all([
+        fetch(`http://127.0.0.1:${this.port}/api/media?limit=1`),
+        fetch(`http://127.0.0.1:${this.port}/api/library`)
+      ]);
+      const media = await mediaRes.json();
+      const libs = await libRes.json();
+
+      const total = media.total || 0;
+      const movies = media.items?.filter(i => i.media_type === 'movie').length || 0;
+      const tvShows = media.items?.filter(i => i.media_type === 'tv_show').length || 0;
+      const favs = media.items?.filter(i => i.favorite).length || 0;
+
+      const el = (id) => document.getElementById(id);
+      if (el('stat-total')) el('stat-total').textContent = total;
+      if (el('stat-movies')) el('stat-movies').textContent = movies;
+      if (el('stat-tv')) el('stat-tv').textContent = tvShows;
+      if (el('stat-favs')) el('stat-favs').textContent = favs;
+      if (el('stat-locations')) el('stat-locations').textContent = libs.libraries?.length || 0;
+      if (el('stat-played')) el('stat-played').textContent = '0';
+    } catch (e) {
+      console.error('Failed to load stats:', e);
+    }
+  },
+
+  renderActivity(container) {
+    container.innerHTML = `
+      <h2 style="margin-bottom:24px;">Activity</h2>
+      <div class="empty-state">
+        <div class="empty-state-icon">📋</div>
+        <div class="empty-state-title">No activity yet</div>
+        <p>Activity will appear here as you use JMDB.</p>
+      </div>
+    `;
+  },
+
+  renderHelp(container) {
+    container.innerHTML = `
+      <h2 style="margin-bottom:24px;">Help</h2>
+      <div class="settings-section">
+        <h3 style="margin-bottom:12px;">Getting Started</h3>
+        <ol style="padding-left:20px;line-height:2;">
+          <li>Go to <strong>Locations</strong> and add your media folders</li>
+          <li>Click <strong>Scan</strong> to index your media files</li>
+          <li>Browse your library under <strong>Library → All Media</strong></li>
+          <li>Use <strong>Search</strong> to find specific titles</li>
+          <li>Click any media card to <strong>play</strong> it</li>
+        </ol>
+      </div>
+      <div class="settings-section" style="margin-top:16px;">
+        <h3 style="margin-bottom:12px;">Keyboard Shortcuts</h3>
+        <div class="setting-row"><div><div class="setting-label">/</div><div class="setting-desc">Focus search bar</div></div></div>
+        <div class="setting-row"><div><div class="setting-label">Enter</div><div class="setting-desc">Submit search</div></div></div>
+        <div class="setting-row"><div><div class="setting-label">Escape</div><div class="setting-desc">Close modals/dropdowns</div></div></div>
+      </div>
+    `;
+  },
+
+  renderAbout(container) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:60px 20px;">
+        <div style="width:80px;height:80px;background:linear-gradient(135deg,var(--accent),var(--accent-hover));border-radius:var(--radius-lg);display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:bold;color:#000;margin:0 auto 24px;">J</div>
+        <h1 style="margin-bottom:8px;">JMDB</h1>
+        <p style="color:var(--text-muted);margin-bottom:4px;">Johnny's Media Database</p>
+        <p style="color:var(--text-muted);margin-bottom:32px;">Version 1.0.0</p>
+        <p style="max-width:500px;margin:0 auto;line-height:1.6;">A personal media library manager built with FastAPI, SQLAlchemy, and Electron. Scan your media folders, fetch metadata, and enjoy your collection.</p>
+      </div>
+    `;
+  },
+
+  renderDiagnostics(container) {
+    container.innerHTML = `
+      <h2 style="margin-bottom:24px;">Diagnostics</h2>
+      <div id="diag-content">
+        <div class="settings-section">
+          <div class="settings-section-title">System Information</div>
+          <div id="diag-loading"><p>Checking...</p></div>
+        </div>
+      </div>
+    `;
+    this.loadDiagnostics();
+  },
+
+  async loadDiagnostics() {
+    const area = document.getElementById('diag-loading');
+    if (!area) return;
+    try {
+      const [sysRes, dbRes, srvRes] = await Promise.all([
+        fetch(`http://127.0.0.1:${this.port}/api/system/info`),
+        fetch(`http://127.0.0.1:${this.port}/api/system/diagnostics`),
+        fetch(`http://127.0.0.1:${this.port}/api/health`)
+      ]);
+      const sys = await sysRes.json();
+      const diag = await dbRes.json();
+      const health = await srvRes.json();
+
+      area.innerHTML = `
+        <div class="setting-row"><div><div class="setting-label">Application</div></div><span>${sys.application || 'JMDB'} v${sys.version || '1.0.0'}</span></div>
+        <div class="setting-row"><div><div class="setting-label">Backend Status</div></div><span style="color:var(--success);">● ${health.status || 'healthy'}</span></div>
+        <div class="setting-row"><div><div class="setting-label">Python</div></div><span>${sys.python || '-'}</span></div>
+        <div class="setting-row"><div><div class="setting-label">Platform</div></div><span>${sys.platform || '-'}</span></div>
+        <div class="setting-row"><div><div class="setting-label">Database Path</div></div><span style="font-size:12px;word-break:break-all;">${diag.db_path || '-'}</span></div>
+        <div class="setting-row"><div><div class="setting-label">Database Exists</div></div><span>${diag.db_exists ? 'Yes' : 'No'}</span></div>
+        <div class="setting-row"><div><div class="setting-label">Database Size</div></div><span>${diag.db_size ? (diag.db_size / 1024).toFixed(1) + ' KB' : '-'}</span></div>
+      `;
+    } catch (e) {
+      area.innerHTML = `<p style="color:var(--danger);">Failed to load diagnostics: ${e.message}</p>`;
+    }
+  },
+
+  renderScanHistory(container) {
+    container.innerHTML = `
+      <h2 style="margin-bottom:24px;">Scan History</h2>
+      <div class="empty-state">
+        <div class="empty-state-icon">📜</div>
+        <div class="empty-state-title">No scan history</div>
+        <p>Scan results will appear here after you scan a location.</p>
+      </div>
+    `;
+  },
+
+  renderScanProblems(container) {
+    container.innerHTML = `
+      <h2 style="margin-bottom:24px;">Scan Problems</h2>
+      <div class="empty-state">
+        <div class="empty-state-icon">✅</div>
+        <div class="empty-state-title">No problems detected</div>
+        <p>All scans have completed without errors.</p>
+      </div>
+    `;
   },
 
   toggleTheme() {
     const isDark = document.body.classList.contains('theme-dark');
-    document.body.classList.toggle('theme-dark');
-    document.body.classList.toggle('theme-light');
+    document.body.classList.remove('theme-dark', 'theme-light');
+    document.body.classList.add(isDark ? 'theme-light' : 'theme-dark');
     const btn = document.getElementById('theme-toggle');
     if (btn) btn.textContent = isDark ? '☀️' : '🌙';
   },
 
-  esc(s) {
-    if (!s) return '';
-    const d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
+  toast(msg, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : 'i';
+    toast.innerHTML = `<span>${icon}</span><span>${this.escapeHtml(msg)}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  },
+
+  escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
   }
 };
-document.addEventListener('DOMContentLoaded', () => App.init());
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => App.init());
+} else {
+  App.init();
+}

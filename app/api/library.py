@@ -3,12 +3,12 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_session_local
 from app.database.repositories.library import LibraryRepository
 from app.database.repositories.media import MediaRepository
-from app.database.models import Library, MediaType, MediaItem, MediaStatus
+from app.database.models import Library, MediaType, MediaItem, MediaStatus, MediaFile
 from app.config import get_settings
 from app.scanner.scanner import scan_directory
-from app.metadata.fetcher import enrich_media_metadata
 from app.logging import get_logger
 from datetime import datetime
+import asyncio
 
 router = APIRouter()
 logger = get_logger("api.library")
@@ -51,11 +51,16 @@ def list_libraries(db: Session = Depends(get_db)):
 @router.post("/library")
 def create_library(data: dict, db: Session = Depends(get_db)):
     repo = LibraryRepository(db)
+    existing = repo.find_by_path(data.get("path", ""))
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Location already exists: {existing.path}")
     lib = repo.create(
         name=data.get("name", "New Library"),
         path=data.get("path", ""),
         media_type=data.get("media_type", "movie")
     )
+    if not lib:
+        raise HTTPException(status_code=409, detail="A library with this path already exists")
     return {"id": lib.id, "name": lib.name, "path": lib.path, "media_type": lib.media_type.value}
 
 @router.delete("/library/{library_id}")
@@ -115,10 +120,6 @@ def run_scan(library_id: int, path: str, media_type: str):
         files = scan_directory(path, progress_callback, cancel_callback)
         scan_state["files_found"] = len(files)
         
-        # Check if auto-fetch is enabled
-        from app.database.repositories.services import SettingsRepository
-        auto_fetch = SettingsRepository(db).get_all().get("auto_fetch_metadata", "true") == "true"
-        
         for file_info in files:
             if scan_state["cancelled"]:
                 break
@@ -129,6 +130,16 @@ def run_scan(library_id: int, path: str, media_type: str):
                 ).first()
                 
                 if existing:
+                    new_media_type = MediaType(file_info["media_type"])
+
+                    if existing.media_type != new_media_type:
+                        logger.info(
+                            f"Updating media type for {file_info['file_path']}: "
+                            f"{existing.media_type.value} -> {new_media_type.value}"
+                        )
+                        existing.media_type = new_media_type
+                        media_repo.update(existing)
+
                     continue
                 
                 item = MediaItem(
@@ -148,14 +159,6 @@ def run_scan(library_id: int, path: str, media_type: str):
                     file_format=file_info["file_format"]
                 )
                 
-                # Enrich metadata if enabled
-                if auto_fetch:
-                    import asyncio
-                    try:
-                        asyncio.run(enrich_media_metadata(item.id, file_info["file_name"], file_info["media_type"], db))
-                    except Exception as meta_err:
-                        logger.error(f"Metadata fetch failed for {file_info['file_name']}: {meta_err}")
-                
                 scan_state["media_added"] += 1
                 
             except Exception as e:
@@ -172,5 +175,3 @@ def run_scan(library_id: int, path: str, media_type: str):
         lib_repo.update_scan_status(library_id, "error")
     finally:
         db.close()
-
-from app.database.models import MediaFile

@@ -37,3 +37,6 @@ data/logs/*.log
 Thumbs.db
 .vscode/
 .idea/
+
+# Local safety backups
+*.backup-*

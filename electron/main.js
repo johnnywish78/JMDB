@@ -1,5 +1,23 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
+
+// Check if we're running inside Electron
+const isElectron = typeof process !== 'undefined' && 
+                   process.versions && 
+                   process.versions.electron;
+
+let app, BrowserWindow, ipcMain, dialog, shell;
+
+if (isElectron) {
+  const electron = require('electron');
+  app = electron.app;
+  BrowserWindow = electron.BrowserWindow;
+  ipcMain = electron.ipcMain;
+  dialog = electron.dialog;
+  shell = electron.shell;
+} else {
+  console.error('NOT RUNNING IN ELECTRON - this should not happen');
+  process.exit(1);
+}
 
 let mainWindow = null;
 

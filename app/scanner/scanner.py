@@ -3,6 +3,7 @@ Real media file scanner.
 Recursively scans directories for video/audio files.
 """
 from pathlib import Path
+import re
 from typing import List, Dict, Callable, Optional
 from app.logging import get_logger
 
@@ -34,6 +35,35 @@ def get_media_type(extension: str) -> str:
     elif ext in IMAGE_EXTENSIONS:
         return "image"
     return "other"
+
+def classify_video_file(filename: str, full_path: str = "") -> str:
+    """
+    Classify a video file as a movie or TV show.
+
+    Only explicit episode markers are treated as TV shows:
+      - S01E01, S1E2, etc.
+      - 1x01, 01x02, etc.
+
+    Other video files remain movies.
+    """
+    name = Path(filename).stem
+
+    # S01E01, S1E2, S02E08, etc.
+    if re.search(
+        r"(?i)(?:^|[.\\s_-])s\d{1,2}e\d{1,3}(?:$|[.\\s_-])",
+        name,
+    ):
+        return "tv_show"
+
+    # 1x01, 01x02, etc.
+    if re.search(
+        r"(?i)(?:^|[.\\s_-])\d{1,2}x\d{1,3}(?:$|[.\\s_-])",
+        name,
+    ):
+        return "tv_show"
+
+    return "movie"
+
 
 def scan_directory(
     directory: str,
@@ -96,7 +126,11 @@ def scan_directory(
                 "file_path": str(file_path),
                 "file_size": stat.st_size,
                 "file_format": file_path.suffix.lstrip(".").upper(),
-                "media_type": get_media_type(file_path.suffix),
+                "media_type": (
+                    classify_video_file(file_path.name, str(file_path))
+                    if file_path.suffix.lower() in VIDEO_EXTENSIONS
+                    else get_media_type(file_path.suffix)
+                ),
                 "modified_at": datetime.fromtimestamp(stat.st_mtime)
             }
             results.append(file_info)

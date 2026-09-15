@@ -34,14 +34,21 @@ def start_backend(host, port, log_level):
 def wait_backend(host, port, timeout=30):
     url = f"http://{host}:{port}/api/health"
     start = time.time()
+
+    # Local JMDB backend must never go through the system HTTP/SOCKS proxy.
+    direct_opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({})
+    )
+
     while time.time() - start < timeout:
         try:
-            if urllib.request.urlopen(url, timeout=2).getcode() == 200:
+            if direct_opener.open(url, timeout=2).getcode() == 200:
                 print("[JMDB] Backend healthy")
                 return True
         except Exception:
             pass
         time.sleep(0.5)
+
     print("[JMDB] ERROR: Backend failed")
     return False
 
