@@ -200,11 +200,25 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg-primar
 .media-row::-webkit-scrollbar { height: 6px; }
 .media-row::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 3px; }
 
-.media-card { flex: 0 0 160px; cursor: pointer; transition: transform 0.2s; position: relative; }
+.media-card {
+  flex: 0 0 160px;
+  width: 160px;
+  min-width: 160px;
+  max-width: 160px;
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: transform 0.2s;
+  position: relative;
+}
 .media-card:hover { transform: scale(1.05); z-index: 10; }
 .card-poster {
-  width: 100%; aspect-ratio: 2/3; border-radius: var(--radius);
-  background: var(--bg-tertiary); overflow: hidden; margin-bottom: 8px;
+  width: 160px;
+  height: 240px;
+  aspect-ratio: auto;
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  margin-bottom: 8px;
 }
 .card-poster img { width: 100%; height: 100%; object-fit: cover; }
 .card-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -1,6 +1,6 @@
 from pathlib import Path
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import sessionmaker
 
 _engine = None
 _SessionLocal = None
@@ -31,12 +31,10 @@ def get_engine(db_path: str):
 def get_session_local(db_path: str):
     global _SessionLocal
     if _SessionLocal is None:
-        _SessionLocal = scoped_session(
-            sessionmaker(
-                autocommit=False,
-                autoflush=False,
-                bind=get_engine(db_path)
-            )
+        _SessionLocal = sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=get_engine(db_path)
         )
     return _SessionLocal
 
