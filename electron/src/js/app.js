@@ -89,14 +89,6 @@ const App = {
   },
 
   setupDropdowns() {
-    // TEMP DEBUG: verify renderer receives the Add Location click.
-    document.addEventListener('click', (e) => {
-      const item = e.target.closest('[data-action="add-location"]');
-      if (item) {
-        alert('JMDB DEBUG: Add Location click received');
-      }
-    }, true);
-
     // Reliable action handling for dropdown items.
     // Capture phase guarantees the action is received even if another
     // renderer handler stops normal bubbling.
@@ -266,94 +258,196 @@ const App = {
 
   renderHome(container) {
     container.innerHTML = `
-      <div class="hero-section">
+      <section class="hero-section">
+        <div class="hero-backdrop"></div>
         <div class="hero-overlay"></div>
+
         <div class="hero-content">
-          <div class="hero-poster">
-            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:48px;background:var(--bg-tertiary);">🎬</div>
+          <div class="hero-poster" aria-hidden="true">
+            <div class="hero-poster-mark">J</div>
           </div>
+
           <div class="hero-info">
+            <div class="hero-kicker">YOUR PERSONAL MEDIA UNIVERSE</div>
             <h1 class="hero-title">Welcome to JMDB</h1>
-            <div class="hero-meta">Johnny's Media Database • v1.0.0</div>
-            <p class="hero-overview">Your personal media library manager. Add locations, scan your collection, and enjoy your movies, TV shows, and music in one place.</p>
-            <div class="hero-actions" style="display:flex;gap:12px;margin-top:16px;">
-              <button class="btn btn-primary" id="home-add-location">+ Add Location</button>
-              <button class="btn btn-secondary" id="home-explore">Explore Library</button>
+            <div class="hero-meta">Johnny's Media Database <span>•</span> v1.0.0</div>
+            <p class="hero-overview">
+              Your personal media library, beautifully organized.
+              Discover, manage and play your collection from one cinematic home.
+            </p>
+
+            <div class="hero-actions">
+              <button class="btn btn-primary" id="home-add-location">
+                <span class="btn-icon">+</span>
+                Add Location
+              </button>
+              <button class="btn btn-secondary" id="home-explore">
+                Explore Library
+              </button>
             </div>
           </div>
         </div>
-      </div>
-      ${this.renderSection('Continue Watching', 'continue-row', 'library', { type: 'continue_watching' })}
+      </section>
+
+      ${this.renderSection('Continue Watching', 'continue-row', 'library', { type: 'continue_watching' }, true)}
       ${this.renderSection('Recently Added', 'recent-row', 'library', { type: 'all' }, true)}
-      ${this.renderSection('Favorites', 'fav-row', 'library', { type: 'favorite' })}
+      ${this.renderSection('Favorites', 'fav-row', 'library', { type: 'favorite' }, true)}
     `;
 
-    document.getElementById('home-add-location')?.addEventListener('click', () => this.nav('locations'));
-    document.getElementById('home-explore')?.addEventListener('click', () => this.nav('library', { type: 'all' }));
+    document.getElementById('home-add-location')?.addEventListener('click', () => {
+      this.nav('locations');
+    });
 
-    this.loadMediaRow('continue-row', `http://127.0.0.1:${this.port}/api/media/continue-watching?limit=10`);
-    this.loadMediaRow('recent-row', `http://127.0.0.1:${this.port}/api/media/recent?limit=10`);
-    this.loadMediaRow('fav-row', `http://127.0.0.1:${this.port}/api/media/favorites?limit=10`);
+    document.getElementById('home-explore')?.addEventListener('click', () => {
+      this.nav('library', { type: 'all' });
+    });
+
+    this.loadMediaRow(
+      'continue-row',
+      `http://127.0.0.1:${this.port}/api/media/continue-watching?limit=10`
+    );
+
+    this.loadMediaRow(
+      'recent-row',
+      `http://127.0.0.1:${this.port}/api/media/recent?limit=10`
+    );
+
+    this.loadMediaRow(
+      'fav-row',
+      `http://127.0.0.1:${this.port}/api/media/favorites?limit=10`
+    );
   },
 
   renderSection(title, rowId, navPage, navParams, scrollable = true) {
     return `
-      <div class="section" style="margin-bottom:32px;">
+      <section class="section media-section">
         <div class="section-header">
-          <h2 class="section-title">${title}</h2>
-          <span class="view-all" data-page="${navPage}" data-type="${navParams.type || ''}">View All →</span>
+          <div class="section-heading">
+            <h2 class="section-title">${this.escapeHtml(title)}</h2>
+            <span class="section-accent"></span>
+          </div>
+
+          <button
+            class="view-all"
+            data-page="${navPage}"
+            data-type="${navParams.type || ''}"
+            type="button"
+          >
+            View All
+            <span aria-hidden="true">→</span>
+          </button>
         </div>
-        <div class="media-row ${scrollable ? '' : ''}" id="${rowId}">
-          <div class="empty-state" style="padding:20px;width:100%;">
-            <p>Loading...</p>
+
+        <div class="media-row ${scrollable ? 'media-row-scroll' : ''}" id="${rowId}">
+          <div class="media-row-loading">
+            <span class="loading-pulse"></span>
+            <span>Loading your collection…</span>
           </div>
         </div>
-      </div>
+      </section>
     `;
   },
 
   async loadMediaRow(rowId, url) {
     const row = document.getElementById(rowId);
     if (!row) return;
+
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       const data = await res.json();
       const items = data.items || [];
+
       if (items.length > 0) {
         row.innerHTML = items.map(item => this.mediaCard(item)).join('');
       } else {
-        row.innerHTML = '<div class="empty-state" style="padding:20px;width:100%;"><p>No items found</p></div>';
+        row.innerHTML = `
+          <div class="media-row-empty">
+            <div class="media-row-empty-icon"></div>
+            <span>No titles here yet</span>
+          </div>
+        `;
       }
     } catch (e) {
       console.error(`Failed to load ${rowId}:`, e);
-      row.innerHTML = '<div class="empty-state" style="padding:20px;width:100%;"><p>Failed to load</p></div>';
+
+      row.innerHTML = `
+        <div class="media-row-empty media-row-error">
+          <span>Unable to load this section</span>
+        </div>
+      `;
     }
   },
 
   mediaCard(item, clickable = true) {
-    const colors = ['#1e3a5f', '#5f1e3a', '#3a5f1e', '#5f3a1e', '#3a1e5f', '#5f3a3a'];
-    const color = colors[item.id % colors.length];
     const poster = item.artwork?.find(a => a.is_primary)?.url
       || item.artwork?.[0]?.url
       || '';
-    
-    const posterHTML = poster
-      ? `<img src="${this.escapeHtml(poster)}" alt="${this.escapeHtml(item.title)}" style="width:100%;height:100%;object-fit:cover;" loading="lazy">`
-      : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:32px;opacity:0.5;">${item.media_type === 'music' ? '🎵' : '🎬'}</div>`;
 
-    const clickHandler = clickable ? `onclick="App.loadPlayer(${item.id})"` : '';
-    const ctxClickHandler = clickable ? `oncontextmenu="App.showMediaContext(event, ${item.id})"` : '';
+    const title = this.escapeHtml(item.title || 'Untitled');
+    const mediaType = this.escapeHtml(item.media_type || 'media');
+    const year = item.year || '';
+
+    const posterHTML = poster
+      ? `
+        <img
+          src="${this.escapeHtml(poster)}"
+          alt="${title}"
+          class="card-poster-image"
+          loading="lazy"
+        >
+      `
+      : `
+        <div class="card-poster-fallback" aria-hidden="true">
+          <span class="card-poster-fallback-mark">J</span>
+        </div>
+      `;
+
+    const clickHandler = clickable
+      ? `onclick="App.loadPlayer(${Number(item.id)})"`
+      : '';
+
+    const ctxClickHandler = clickable
+      ? `oncontextmenu="App.showMediaContext(event, ${Number(item.id)})"`
+      : '';
 
     return `
-      <div class="media-card" ${clickHandler} ${ctxClickHandler} data-media-id="${item.id}">
-        <div class="card-poster" style="background:${color};">
+      <article
+        class="media-card"
+        ${clickHandler}
+        ${ctxClickHandler}
+        data-media-id="${Number(item.id)}"
+        tabindex="${clickable ? '0' : '-1'}"
+        role="${clickable ? 'button' : 'article'}"
+        aria-label="${title}"
+      >
+        <div class="card-poster">
           ${posterHTML}
+
+          <div class="card-poster-shade"></div>
+
+          ${item.favorite ? `
+            <div class="card-favorite" title="Favorite" aria-label="Favorite">
+              <span>★</span>
+            </div>
+          ` : ''}
+
+          ${item.progress != null && Number(item.progress) > 0 ? `
+            <div class="card-progress">
+              <span style="--progress:${Math.min(100, Math.max(0, Number(item.progress)))}%"></span>
+            </div>
+          ` : ''}
         </div>
-        <div class="card-title" title="${this.escapeHtml(item.title)}">${this.escapeHtml(item.title)}</div>
-        <div class="card-meta">${item.year || 'N/A'} • ${this.escapeHtml(item.media_type)}</div>
-        ${item.favorite ? '<div class="card-fav">⭐</div>' : ''}
-      </div>
+
+        <div class="card-info">
+          <div class="card-title" title="${title}">${title}</div>
+          <div class="card-meta">
+            ${year ? `<span>${year}</span><span class="card-meta-dot">•</span>` : ''}
+            <span>${mediaType.replace('_', ' ')}</span>
+          </div>
+        </div>
+      </article>
     `;
   },
 
