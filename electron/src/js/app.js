@@ -405,7 +405,7 @@ const App = {
       `;
 
     const clickHandler = clickable
-      ? `onclick="App.loadPlayer(${Number(item.id)})"`
+      ? `onclick="App.showMediaDetail(${Number(item.id)})"`
       : '';
 
     const ctxClickHandler = clickable
@@ -1001,6 +1001,263 @@ const App = {
     }
   },
 
+  async showMediaDetail(mediaId) {
+    const container = document.getElementById('app-content');
+    if (!container) return;
+
+    const id = Number(mediaId);
+    if (!Number.isFinite(id) || id <= 0) return;
+
+    container.innerHTML = `
+      <section class="media-detail-page">
+        <div class="media-detail-loading">
+          <div class="media-detail-loading-mark">J</div>
+          <span>Loading title…</span>
+        </div>
+      </section>
+    `;
+
+    this.currentPage = 'detail';
+    this.currentMediaId = id;
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${this.port}/api/media/${id}`
+      );
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const item = await res.json();
+      this.renderMediaDetail(container, item);
+    } catch (e) {
+      console.error('Failed to load media detail:', e);
+
+      container.innerHTML = `
+        <section class="media-detail-page">
+          <div class="media-detail-empty">
+            <div class="media-detail-empty-icon">!</div>
+            <h2>Unable to load title</h2>
+            <p>JMDB could not retrieve this media item.</p>
+            <button class="btn btn-secondary" onclick="App.nav('library', {type:'all'})">
+              Back to Library
+            </button>
+          </div>
+        </section>
+      `;
+    }
+  },
+
+  renderMediaDetail(container, item) {
+    const escape = value => this.escapeHtml(value == null ? '' : String(value));
+
+    const title = escape(item.title || 'Untitled');
+    const originalTitle = escape(item.original_title || '');
+    const description = escape(
+      item.description || 'No description is available for this title.'
+    );
+
+    const poster =
+      item.artwork?.find(a => a.is_primary && a.type === 'poster')?.url ||
+      item.artwork?.find(a => a.is_primary)?.url ||
+      item.artwork?.find(a => a.type === 'poster')?.url ||
+      item.artwork?.[0]?.url ||
+      '';
+
+    const backdrop =
+      item.artwork?.find(a => a.type === 'backdrop')?.url ||
+      item.artwork?.find(a => a.type === 'fanart')?.url ||
+      '';
+
+    const typeLabel = escape(
+      (item.media_type || 'media').replace('_', ' ')
+    );
+
+    const genres = Array.isArray(item.genres) ? item.genres : [];
+    const people = Array.isArray(item.people) ? item.people : [];
+    const externalIds = Array.isArray(item.external_ids)
+      ? item.external_ids
+      : [];
+
+    const rating = item.rating != null
+      ? Number(item.rating).toFixed(1)
+      : '';
+
+    const runtime = item.runtime
+      ? `${Math.floor(Number(item.runtime) / 60)}h ${Number(item.runtime) % 60}m`
+      : '';
+
+    const progress = item.watch_progress;
+    const progressPercent =
+      progress && Number(progress.duration) > 0
+        ? Math.min(
+            100,
+            Math.max(
+              0,
+              (Number(progress.position) / Number(progress.duration)) * 100
+            )
+          )
+        : 0;
+
+    const heroStyle = backdrop
+      ? `style="--detail-backdrop:url('${this.escapeHtml(backdrop)}')"`
+      : '';
+
+    const posterHtml = poster
+      ? `<img src="${this.escapeHtml(poster)}" alt="${title}" class="media-detail-poster">`
+      : `<div class="media-detail-poster-fallback"><span>J</span></div>`;
+
+    const meta = [
+      item.year ? `<span>${escape(item.year)}</span>` : '',
+      runtime ? `<span>${escape(runtime)}</span>` : '',
+      `<span>${typeLabel}</span>`
+    ].filter(Boolean).join('<span class="media-detail-dot">•</span>');
+
+    const genreHtml = genres.length
+      ? genres.map(g => `<span class="media-detail-chip">${escape(g)}</span>`).join('')
+      : '<span class="media-detail-muted">No genres listed</span>';
+
+    const peopleHtml = people.length
+      ? people.slice(0, 8).map(p => `
+          <span class="media-detail-person">
+            ${escape(p.name)}
+            ${p.role ? `<small>${escape(p.role)}</small>` : ''}
+          </span>
+        `).join('')
+      : '<span class="media-detail-muted">No cast information</span>';
+
+    const externalHtml = externalIds.length
+      ? externalIds.map(e => `
+          <span class="media-detail-external">
+            ${escape(e.provider)} · ${escape(e.external_id)}
+          </span>
+        `).join('')
+      : '';
+
+    const progressHtml = progressPercent > 0
+      ? `
+        <div class="media-detail-progress">
+          <div class="media-detail-progress-track">
+            <span style="width:${progressPercent}%"></span>
+          </div>
+          <small>${Math.round(progressPercent)}% watched</small>
+        </div>
+      `
+      : '';
+
+    container.innerHTML = `
+      <section class="media-detail-page" ${heroStyle}>
+        <div class="media-detail-backdrop"></div>
+        <div class="media-detail-vignette"></div>
+
+        <div class="media-detail-content">
+          <button
+            class="media-detail-back"
+            type="button"
+            onclick="App.nav('library', {type:'all'})"
+          >
+            <span>←</span> Back to Library
+          </button>
+
+          <div class="media-detail-main">
+            <div class="media-detail-poster-wrap">
+              ${posterHtml}
+              ${item.favorite ? `
+                <div class="media-detail-favorite-badge">★ Favorite</div>
+              ` : ''}
+            </div>
+
+            <div class="media-detail-info">
+              <span class="media-detail-kicker">${typeLabel.toUpperCase()}</span>
+
+              <h1 class="media-detail-title">${title}</h1>
+
+              ${originalTitle && originalTitle !== title ? `
+                <div class="media-detail-original">${originalTitle}</div>
+              ` : ''}
+
+              <div class="media-detail-meta">
+                ${meta}
+                ${rating ? `
+                  <span class="media-detail-rating">
+                    ★ ${escape(rating)}
+                    ${item.votes ? `<small>${Number(item.votes).toLocaleString()} votes</small>` : ''}
+                  </span>
+                ` : ''}
+              </div>
+
+              <p class="media-detail-description">${description}</p>
+
+              <div class="media-detail-actions">
+                <button
+                  class="btn btn-primary media-detail-play"
+                  type="button"
+                  onclick="App.loadPlayer(${id})"
+                >
+                  ▶ Play
+                </button>
+
+                <button
+                  class="btn btn-secondary"
+                  type="button"
+                  onclick="App.toggleMediaFavorite(${id}, this)"
+                >
+                  ${item.favorite ? '★ Favorite' : '☆ Add Favorite'}
+                </button>
+              </div>
+
+              ${progressHtml}
+
+              <div class="media-detail-section">
+                <div class="media-detail-section-label">GENRES</div>
+                <div class="media-detail-chips">${genreHtml}</div>
+              </div>
+
+              <div class="media-detail-section">
+                <div class="media-detail-section-label">CAST & PEOPLE</div>
+                <div class="media-detail-people">${peopleHtml}</div>
+              </div>
+
+              ${externalHtml ? `
+                <div class="media-detail-section">
+                  <div class="media-detail-section-label">EXTERNAL IDs</div>
+                  <div class="media-detail-external-list">${externalHtml}</div>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+  },
+
+  async toggleMediaFavorite(mediaId, button) {
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${this.port}/api/media/${Number(mediaId)}/favorite`,
+        { method: 'POST' }
+      );
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      button.textContent = data.favorite ? '★ Favorite' : '☆ Add Favorite';
+
+      if (this.currentMediaId === Number(mediaId)) {
+        this.toast(
+          data.favorite ? 'Added to Favorites' : 'Removed from Favorites',
+          'success'
+        );
+      }
+    } catch (e) {
+      console.error('Failed to toggle favorite:', e);
+      this.toast('Could not update favorite', 'error');
+    }
+  },
+
   loadPlayer(mediaId) {
     this.nav('player');
     setTimeout(() => {
@@ -1017,7 +1274,7 @@ const App = {
 
     menu.innerHTML = `
       <div class="context-menu-item" onclick="App.loadPlayer(${mediaId});App.hideContextMenu();">▶ Play</div>
-      <div class="context-menu-item" onclick="App.toast('Details coming soon', 'info');App.hideContextMenu();">ℹ Details</div>
+      <div class="context-menu-item" onclick="App.showMediaDetail(${mediaId});App.hideContextMenu();">ℹ Details</div>
       <div class="context-sep"></div>
       <div class="context-menu-item" onclick="App.toast('Edit coming soon', 'info');App.hideContextMenu();">✏ Edit</div>
       <div class="context-menu-item" onclick="App.toast('Fetch metadata coming soon', 'info');App.hideContextMenu();">🏷 Fetch Metadata</div>
