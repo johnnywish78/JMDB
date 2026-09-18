@@ -453,70 +453,184 @@ const App = {
 
   renderLibrary(container, type) {
     const titles = {
-      all: 'All Media', movie: 'Movies', tv_show: 'TV Shows', episode: 'Episodes',
-      collection: 'Collections', favorite: 'Favorites', recently_added: 'Recently Added',
-      recently_played: 'Recently Played', continue_watching: 'Continue Watching',
-      watched: 'Watched', unwatched: 'Unwatched'
+      all: 'All Media',
+      movie: 'Movies',
+      tv_show: 'TV Shows',
+      episode: 'Episodes',
+      collection: 'Collections',
+      favorite: 'Favorites',
+      recently_added: 'Recently Added',
+      recently_played: 'Recently Played',
+      continue_watching: 'Continue Watching',
+      watched: 'Watched',
+      unwatched: 'Unwatched'
     };
-    const title = titles[type] || type;
+
+    const title = titles[type] || 'Library';
 
     container.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
-        <h2>${title}</h2>
-        <div class="library-filters" style="display:flex;gap:8px;">
-          <select class="form-select" id="lib-sort" style="width:150px;" onchange="App.sortLibrary(this.value)">
-            <option value="newest">Newest First</option>
-            <option value="oldest">Oldest First</option>
-            <option value="title">Title A-Z</option>
-            <option value="rating">Rating</option>
-          </select>
+      <section class="library-page">
+        <header class="library-header">
+          <div class="library-heading">
+            <span class="library-kicker">YOUR COLLECTION</span>
+            <h1 class="library-title">${title}</h1>
+            <p class="library-subtitle">
+              Your personal media collection, organized for discovery.
+            </p>
+          </div>
+
+          <div class="library-toolbar">
+            <label class="library-sort">
+              <span>Sort</span>
+              <select id="lib-sort" class="form-select" onchange="App.sortLibrary(this.value)">
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="title">Title A-Z</option>
+                <option value="rating">Rating</option>
+              </select>
+            </label>
+
+            <button
+              class="library-view-toggle active"
+              type="button"
+              aria-label="Grid view"
+              title="Grid view"
+            >▦</button>
+          </div>
+        </header>
+
+        <nav class="library-tabs" aria-label="Library sections">
+          <button class="library-tab ${type === 'all' ? 'active' : ''}"
+                  onclick="App.nav('library', {type:'all'})">All Media</button>
+          <button class="library-tab ${type === 'movie' ? 'active' : ''}"
+                  onclick="App.nav('library', {type:'movie'})">Movies</button>
+          <button class="library-tab ${type === 'tv_show' ? 'active' : ''}"
+                  onclick="App.nav('library', {type:'tv_show'})">TV Shows</button>
+          <button class="library-tab ${type === 'episode' ? 'active' : ''}"
+                  onclick="App.nav('library', {type:'episode'})">Episodes</button>
+          <button class="library-tab ${type === 'favorite' ? 'active' : ''}"
+                  onclick="App.nav('library', {type:'favorite'})">Favorites</button>
+        </nav>
+
+        <div class="library-summary">
+          <span class="library-summary-label">COLLECTION</span>
+          <span id="library-count" class="library-summary-count">Loading…</span>
         </div>
-      </div>
-      <div id="lib-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;"></div>
-      <div id="lib-load-more" style="text-align:center;margin-top:24px;display:none;">
-        <button class="btn btn-secondary" onclick="App.loadMoreLibrary()">Load More</button>
-      </div>
+
+        <div id="lib-grid" class="library-grid">
+          ${Array.from({ length: 10 }, () => `
+            <div class="library-skeleton" aria-hidden="true">
+              <div class="library-skeleton-poster"></div>
+              <div class="library-skeleton-title"></div>
+              <div class="library-skeleton-meta"></div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div id="lib-load-more" class="library-load-more">
+          <button class="btn btn-secondary" onclick="App.loadMoreLibrary()">
+            Load More
+          </button>
+        </div>
+      </section>
     `;
+
     this.currentLibType = type;
+    this.currentLibSort = 'newest';
     this.currentLibOffset = 0;
     this.loadLibraryGrid(type, 0);
   },
 
   async loadLibraryGrid(type, offset = 0) {
+    const sort = this.currentLibSort || 'newest';
+
     let url = `http://127.0.0.1:${this.port}/api/media?limit=20&offset=${offset}`;
-    if (type !== 'all' && ['movie', 'tv_show', 'episode'].includes(type)) {
-      url += `&media_type=${type}`;
+    url += `&sort=${encodeURIComponent(sort)}`;
+
+    if (type === 'favorite') {
+      url += '&favorite=true';
+    } else if (type !== 'all' && ['movie', 'tv_show', 'episode'].includes(type)) {
+      url += `&media_type=${encodeURIComponent(type)}`;
     }
 
     try {
       const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       const data = await res.json();
       const grid = document.getElementById('lib-grid');
+      const count = document.getElementById('library-count');
+      const loadMore = document.getElementById('lib-load-more');
+
       if (!grid) return;
 
       const items = data.items || [];
-      if (offset === 0) grid.innerHTML = '';
+      const total = Number(data.total || 0);
 
-      if (items.length > 0) {
-        grid.insertAdjacentHTML('beforeend', items.map(i => this.mediaCard(i)).join(''));
-      } else if (offset === 0) {
-        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="empty-state-icon">📚</div><div class="empty-state-title">No media found</div><p>Add a location and scan to populate your library.</p></div>';
+      if (count) {
+        count.textContent = `${total.toLocaleString()} ${total === 1 ? 'title' : 'titles'}`;
       }
 
-      if (data.total > offset + items.length) {
-        document.getElementById('lib-load-more')?.style.display && (document.getElementById('lib-load-more').style.display = 'block');
+      if (offset === 0) {
+        grid.innerHTML = '';
+      }
+
+      if (items.length > 0) {
+        grid.insertAdjacentHTML(
+          'beforeend',
+          items.map(item => this.mediaCard(item)).join('')
+        );
+      } else if (offset === 0) {
+        grid.innerHTML = `
+          <div class="library-empty">
+            <div class="library-empty-icon">◈</div>
+            <h2>No media found</h2>
+            <p>Add a media location and scan your library to start building your collection.</p>
+            <button class="btn btn-primary" onclick="App.nav('locations')">
+              Manage Locations
+            </button>
+          </div>
+        `;
+      }
+
+      if (loadMore) {
+        loadMore.classList.toggle(
+          'visible',
+          total > offset + items.length
+        );
       }
     } catch (e) {
       console.error('Failed to load library:', e);
+
       const grid = document.getElementById('lib-grid');
-      if (grid) grid.innerHTML = '<div class="empty-state"><p>Failed to load media</p></div>';
+      const count = document.getElementById('library-count');
+      const loadMore = document.getElementById('lib-load-more');
+
+      if (count) count.textContent = 'Unavailable';
+      if (loadMore) loadMore.classList.remove('visible');
+
+      if (grid) {
+        grid.innerHTML = `
+          <div class="library-empty library-empty-error">
+            <div class="library-empty-icon">!</div>
+            <h2>Library unavailable</h2>
+            <p>JMDB could not load your media collection right now.</p>
+          </div>
+        `;
+      }
     }
   },
 
   sortLibrary(by) {
-    console.log('Sort by:', by);
-    this.toast(`Sorting by ${by}`, 'info');
-    this.loadLibraryGrid(this.currentLibType || 'all', 0);
+    const allowed = ['newest', 'oldest', 'title', 'rating'];
+
+    this.currentLibSort = allowed.includes(by) ? by : 'newest';
+    this.currentLibOffset = 0;
+
+    this.loadLibraryGrid(
+      this.currentLibType || 'all',
+      0
+    );
   },
 
   loadMoreLibrary() {

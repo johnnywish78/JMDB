@@ -83,11 +83,27 @@ def list_media(
     offset: int = Query(0, ge=0),
     media_type: Optional[str] = None,
     search: Optional[str] = None,
+    favorite: Optional[bool] = None,
+    sort: str = Query("newest"),
     db: Session = Depends(get_db)
 ):
+    allowed_sorts = {"newest", "oldest", "title", "rating"}
+    if sort not in allowed_sorts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported sort: {sort}"
+        )
+
     repo = MediaRepository(db)
-    items = repo.get_all(limit, offset, media_type, search)
-    total = repo.count(media_type)
+    items = repo.get_all(
+        limit=limit,
+        offset=offset,
+        media_type=media_type,
+        search=search,
+        favorite=favorite,
+        sort=sort,
+    )
+    total = repo.count(media_type, favorite=favorite)
     
     return {
         "items": [item_dict(i) for i in items],

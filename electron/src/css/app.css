@@ -2032,3 +2032,543 @@ button {
   }
 }
 
+
+/* ============================================================
+   JMDB CINEMATIC LIBRARY — PHASE 1
+   ============================================================ */
+
+.library-page {
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 34px 34px 56px;
+  box-sizing: border-box;
+}
+
+/* ---------- HEADER ---------- */
+
+.library-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 28px;
+}
+
+.library-heading {
+  min-width: 0;
+}
+
+.library-kicker {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.library-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: clamp(30px, 3vw, 44px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.library-subtitle {
+  max-width: 620px;
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.library-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.library-sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.library-sort .form-select {
+  min-width: 156px;
+  height: 38px;
+}
+
+.library-view-toggle {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: rgba(255,255,255,0.035);
+  color: var(--text-secondary);
+  font-size: 19px;
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    color var(--transition),
+    box-shadow var(--transition);
+}
+
+.library-view-toggle:hover,
+.library-view-toggle.active {
+  border-color: rgba(242,169,59,0.32);
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: 0 0 20px rgba(242,169,59,0.07);
+}
+
+/* ---------- CATEGORY TABS ---------- */
+
+.library-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 24px;
+  padding: 5px;
+  overflow-x: auto;
+  border: 1px solid rgba(255,255,255,0.055);
+  border-radius: 11px;
+  background: rgba(255,255,255,0.018);
+  scrollbar-width: none;
+}
+
+.library-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.library-tab {
+  position: relative;
+  min-height: 34px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    color var(--transition);
+}
+
+.library-tab:hover {
+  background: rgba(255,255,255,0.045);
+  color: var(--text-primary);
+}
+
+.library-tab.active {
+  background: rgba(242,169,59,0.10);
+  color: var(--accent);
+}
+
+.library-tab.active::after {
+  content: "";
+  position: absolute;
+  right: 13px;
+  bottom: 3px;
+  left: 13px;
+  height: 1px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+/* ---------- SUMMARY ---------- */
+
+.library-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0 2px 16px;
+}
+
+.library-summary-label {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.library-summary-count {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* ---------- GRID ---------- */
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 30px 18px;
+  align-items: start;
+}
+
+/* ---------- LIBRARY CARDS ---------- */
+
+.library-grid .media-card {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  flex-basis: auto;
+}
+
+.library-grid .card-poster {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  margin-bottom: 10px;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.library-grid .card-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-grid .card-meta {
+  margin-top: 4px;
+}
+
+.library-grid .media-card:hover {
+  transform: translateY(-6px);
+}
+
+/* ---------- LOADING SKELETON ---------- */
+
+.library-skeleton {
+  min-width: 0;
+}
+
+.library-skeleton-poster,
+.library-skeleton-title,
+.library-skeleton-meta {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,255,255,0.045);
+}
+
+.library-skeleton-poster::after,
+.library-skeleton-title::after,
+.library-skeleton-meta::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255,255,255,0.055),
+    transparent
+  );
+  animation: library-skeleton-shimmer 1.6s infinite;
+}
+
+.library-skeleton-poster {
+  aspect-ratio: 2 / 3;
+  border-radius: 10px;
+}
+
+.library-skeleton-title {
+  width: 72%;
+  height: 13px;
+  margin-top: 11px;
+  border-radius: 4px;
+}
+
+.library-skeleton-meta {
+  width: 48%;
+  height: 9px;
+  margin-top: 7px;
+  border-radius: 4px;
+}
+
+@keyframes library-skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* ---------- LOAD MORE ---------- */
+
+.library-load-more {
+  display: none;
+  justify-content: center;
+  padding: 34px 0 8px;
+}
+
+.library-load-more.visible {
+  display: flex;
+}
+
+.library-load-more .btn {
+  min-width: 150px;
+}
+
+/* ---------- EMPTY / ERROR ---------- */
+
+.library-empty {
+  grid-column: 1 / -1;
+  min-height: 330px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 50px 24px;
+  border: 1px solid rgba(255,255,255,0.055);
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      circle at 50% 35%,
+      rgba(242,169,59,0.045),
+      transparent 45%
+    ),
+    rgba(255,255,255,0.012);
+  text-align: center;
+}
+
+.library-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(242,169,59,0.18);
+  border-radius: 12px;
+  background: rgba(242,169,59,0.06);
+  color: var(--accent);
+  font-size: 20px;
+}
+
+.library-empty h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.library-empty p {
+  max-width: 430px;
+  margin: 9px 0 20px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.library-empty-error .library-empty-icon {
+  border-color: rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.035);
+  color: var(--text-secondary);
+}
+
+/* ---------- RESPONSIVE ---------- */
+
+@media (max-width: 900px) {
+  .library-page {
+    padding: 28px 22px 48px;
+  }
+
+  .library-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .library-toolbar {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .library-page {
+    padding: 22px 14px 40px;
+  }
+
+  .library-title {
+    font-size: 30px;
+  }
+
+  .library-toolbar {
+    align-items: stretch;
+  }
+
+  .library-sort {
+    flex: 1;
+  }
+
+  .library-sort .form-select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .library-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px 12px;
+  }
+
+  .library-tabs {
+    margin-right: -14px;
+    margin-left: -14px;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+  }
+}
+
+
+/* ============================================================
+   JMDB CINEMATIC HEADER — OPEN DROPDOWN ACTIVE STATE
+   Keep dropdown parents visually consistent with active nav items.
+   ============================================================ */
+
+.nav-item.dropdown-trigger[aria-expanded="true"] {
+  background: rgba(242, 169, 59, 0.10);
+  color: #f2b24d;
+
+  box-shadow:
+    inset 0 0 0 1px rgba(242, 169, 59, 0.10),
+    0 4px 16px rgba(242, 169, 59, 0.08);
+
+  position: relative;
+}
+
+.nav-item.dropdown-trigger[aria-expanded="true"] .nav-icon {
+  opacity: 1;
+}
+
+.nav-item.dropdown-trigger[aria-expanded="true"] .dropdown-arrow {
+  opacity: 1;
+  color: #f2b24d;
+  transform: rotate(180deg);
+}
+
+/* ============================================================
+   JMDB — DROPDOWN OPEN STATE
+   Match the existing cinematic active navigation treatment.
+   ============================================================ */
+
+.nav-dropdown > .nav-item.dropdown-trigger[aria-expanded="true"] {
+  background: rgba(242, 169, 59, 0.10);
+  color: #f2b24d;
+
+  box-shadow:
+    inset 0 0 0 1px rgba(242, 169, 59, 0.08),
+    0 3px 14px rgba(242, 169, 59, 0.10),
+    0 0 20px rgba(242, 169, 59, 0.045);
+}
+
+.nav-dropdown > .nav-item.dropdown-trigger[aria-expanded="true"] .nav-icon {
+  opacity: 1;
+}
+
+.nav-dropdown > .nav-item.dropdown-trigger[aria-expanded="true"] .dropdown-arrow {
+  opacity: 1;
+  color: #f2b24d;
+  transform: rotate(180deg);
+}
+
+
+/* ============================================================
+   JMDB — DROPDOWN OPEN STATE / RIGHT ACTIVE ACCENT
+   ============================================================ */
+
+.nav-dropdown > .nav-item.dropdown-trigger[aria-expanded="true"] {
+  position: relative;
+
+  background: rgba(242, 169, 59, 0.10);
+  color: #f2b24d;
+
+  box-shadow:
+    inset 0 0 0 1px rgba(242, 169, 59, 0.08),
+    0 3px 14px rgba(242, 169, 59, 0.10),
+    0 0 20px rgba(242, 169, 59, 0.045);
+}
+
+.nav-dropdown > .nav-item.dropdown-trigger[aria-expanded="true"]::after {
+  content: "";
+  position: absolute;
+
+  top: 0;
+  right: 0;
+  bottom: 0;
+
+  width: 3px;
+
+  border-radius: 0 9px 9px 0;
+
+  background: #f2a93b;
+
+  box-shadow:
+    0 0 8px rgba(242, 169, 59, 0.38),
+    0 0 16px rgba(242, 169, 59, 0.14);
+}
+
+.nav-dropdown > .nav-item.dropdown-trigger[aria-expanded="true"] .nav-icon {
+  opacity: 1;
+}
+
+.nav-dropdown > .nav-item.dropdown-trigger[aria-expanded="true"] .dropdown-arrow {
+  opacity: 1;
+  color: #f2b24d;
+  transform: rotate(180deg);
+}
+
+
+/* Refine the open-dropdown right accent:
+   rounded ends matching the navigation item's shape. */
+
+.nav-dropdown > .nav-item.dropdown-trigger[aria-expanded="true"]::after {
+  top: 3px;
+  right: 0;
+  bottom: 3px;
+
+  width: 3px;
+
+  border-radius: 3px;
+
+  background: #f2a93b;
+
+  box-shadow:
+    0 0 7px rgba(242, 169, 59, 0.42),
+    0 0 14px rgba(242, 169, 59, 0.16);
+}
+
+
+/* Final dropdown-open active shape:
+   no separate vertical line — the right edge follows the
+   rounded shape of the navigation button itself. */
+
+.nav-dropdown > .nav-item.dropdown-trigger[aria-expanded="true"] {
+  background: rgba(242, 169, 59, 0.11);
+  color: #f2b24d;
+
+  border-radius: 9px;
+
+  box-shadow:
+    inset -3px 0 0 #f2a93b,
+    inset 0 0 0 1px rgba(242, 169, 59, 0.09),
+    0 3px 14px rgba(242, 169, 59, 0.10),
+    0 0 20px rgba(242, 169, 59, 0.045);
+}
+
+.nav-dropdown > .nav-item.dropdown-trigger[aria-expanded="true"]::after {
+  display: none;
+}
+
