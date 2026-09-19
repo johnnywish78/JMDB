@@ -1277,7 +1277,7 @@ const App = {
       <div class="context-menu-item" onclick="App.showMediaDetail(${mediaId});App.hideContextMenu();">ℹ Details</div>
       <div class="context-sep"></div>
       <div class="context-menu-item" onclick="App.toast('Edit coming soon', 'info');App.hideContextMenu();">✏ Edit</div>
-      <div class="context-menu-item" onclick="App.toast('Fetch metadata coming soon', 'info');App.hideContextMenu();">🏷 Fetch Metadata</div>
+      <div class="context-menu-item" onclick="App.fetchMediaMetadata(${Number(mediaId)});App.hideContextMenu();">🏷 Fetch Metadata</div>
     `;
 
     menu.style.display = 'block';
@@ -1285,6 +1285,52 @@ const App = {
     menu.style.top = e.clientY + 'px';
     menu.style.visibility = 'visible';
     menu.setAttribute('aria-hidden', 'false');
+  },
+
+  async fetchMediaMetadata(mediaId) {
+    const id = Number(mediaId);
+
+    if (!Number.isFinite(id) || id <= 0) {
+      this.toast("Invalid media ID", "error");
+      return;
+    }
+
+    this.toast("Fetching metadata...", "info");
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${this.port}/api/media/${id}/metadata`,
+        { method: "POST" }
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || `HTTP ${response.status}`
+        );
+      }
+
+      this.toast(
+        "Metadata updated successfully",
+        "success"
+      );
+
+      if (this.currentMediaId === id) {
+        await this.showMediaDetail(id);
+      }
+
+    } catch (error) {
+      console.error(
+        "Metadata fetch failed:",
+        error
+      );
+
+      this.toast(
+        error.message || "Could not fetch metadata",
+        "error"
+      );
+    }
   },
 
   hideContextMenu() {

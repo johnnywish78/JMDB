@@ -1,178 +1,453 @@
 import httpx
-import re
 from typing import Optional, Dict, Any
+
+from sqlalchemy import text
+
 from app.logging import get_logger
 from app.database.repositories.services import SettingsRepository
 
 logger = get_logger("metadata.fetcher")
 
-def extract_year_and_clean_title(filename: str) -> tuple[str, Optional[int]]:
-    """Extract year and clean title from filename (e.g., 'Movie.Name.2020.1080p.mkv' -> 'Movie Name', 2020)"""
-    # Remove extension and common tags
-    clean = re.sub(r'\.(mkv|mp4|avi|mov|webm|srt|nfo)$', '', filename, flags=re.IGNORECASE)
-    clean = re.sub(r'\.(1080p|720p|480p|2160p|4k|bluray|webrip|hdtv|x264|x265|hevc)', '', clean, flags=re.IGNORECASE)
-    clean = clean.replace('.', ' ').replace('_', ' ').strip()
-    
-    # Try to find a 4-digit year
-    year_match = re.search(r'\b(19|20)\d{2}\b', clean)
-    year = int(year_match.group()) if year_match else None
-    
+
+async def _tmdb_get(
+    endpoint: str,
+    api_key: str,
+    params: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+
+    if not api_key:
+        return None
+
+    request_params = dict(params or {})
+    request_params["api_key"] = api_key
+
+    try:
+        import os
+
+        proxy = (
+            os.environ.get("HTTPS_PROXY")
+            or os.environ.get("https_proxy")
+            or os.environ.get("HTTP_PROXY")
+            or os.environ.get("http_proxy")
+        )
+
+        client_kwargs = {
+            "timeout": 15.0,
+            "trust_env": False,
+        }
+
+        if proxy:
+            client_kwargs["proxy"] = proxy
+
+        async with httpx.AsyncClient(**client_kwargs) as client:
+            response = await client.get(
+                f"https://api.themoviedb.org/3/{endpoint.lstrip('/')}",
+                params=request_params,
+            )
+
+        if response.status_code != 200:
+            logger.warning(
+                f"TMDB request failed: {response.status_code} {endpoint}"
+            )
+            return None
+
+        return response.json()
+
+    except Exception as e:
+        logger.error(f"TMDB request error for {endpoint}: {e}")
+        return None
+
+
+def extract_year_and_clean_title(filename: str):
+    """Compatibility wrapper around the real scanner parser."""
+    from app.scanner.scanner import parse_media_filename
+
+    parsed = parse_media_filename(filename)
+    return parsed["title"], parsed.get("year")
+
+
+async def fetch_from_tmdb(
+    title: str,
+    year: Optional[int],
+    media_type: str,
+    api_key: str,
+) -> Optional[Dict[str, Any]]:
+
+    search_type = "movie" if media_type == "movie" else "tv"
+
+    params = {"query": title}
+
     if year:
-        clean = clean.replace(str(year), '').strip()
-        # Remove trailing punctuation
-        clean = re.sub(r'[\-\s]+$', '', clean)
-        
-    return clean, year
+        if search_type == "movie":
+            params["year"] = str(year)
+        else:
+            params["first_air_date_year"] = str(year)
 
-async def fetch_from_tmdb(title: str, year: Optional[int], media_type: str, api_key: str) -> Optional[Dict[str, Any]]:
-    """Fetch metadata from TMDB"""
-    if not api_key:
-        return None
-    
+    data = await _tmdb_get(
+        f"search/{search_type}",
+        api_key,
+        params,
+    )
+
+    results = data.get("results", []) if data else []
+    return results[0] if results else None
+
+
+async def fetch_details_from_tmdb(
+    tmdb_id: int,
+    media_type: str,
+    api_key: str,
+) -> Optional[Dict[str, Any]]:
+
     search_type = "movie" if media_type == "movie" else "tv"
-    url = f"https://api.themoviedb.org/3/search/{search_type}"
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            params = {"query": title, "api_key": api_key}
-            if year:
-                params["year" if search_type == "movie" else "first_air_date_year"] = str(year)
-            
-            response = await client.get(url, params=params, timeout=10.0)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("results"):
-                    # Return the first match
-                    return data["results"][0]
-    except Exception as e:
-        logger.error(f"TMDB fetch error: {e}")
-    
-    return None
 
-async def fetch_details_from_tmdb(tmdb_id: int, media_type: str, api_key: str) -> Optional[Dict[str, Any]]:
-    """Fetch detailed metadata and artwork from TMDB"""
-    if not api_key:
-        return None
-    
-    search_type = "movie" if media_type == "movie" else "tv"
-    url = f"https://api.themoviedb.org/3/{search_type}/{tmdb_id}"
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            params = {"api_key": api_key, "append_to_response": "credits,videos"}
-            response = await client.get(url, params=params, timeout=10.0)
-            if response.status_code == 200:
-                return response.json()
-    except Exception as e:
-        logger.error(f"TMDB details fetch error: {e}")
-    
-    return None
+    return await _tmdb_get(
+        f"{search_type}/{tmdb_id}",
+        api_key,
+        {
+            "append_to_response": "credits,videos,external_ids"
+        },
+    )
 
-async def enrich_media_metadata(media_item_id: int, filename: str, media_type: str, db_session) -> bool:
-    """Main function to enrich a media item with real metadata"""
+
+async def fetch_episode_details(
+    tmdb_id: int,
+    season_number: int,
+    episode_number: int,
+    api_key: str,
+) -> Optional[Dict[str, Any]]:
+
+    return await _tmdb_get(
+        f"tv/{tmdb_id}/season/{season_number}/episode/{episode_number}",
+        api_key,
+        {
+            "append_to_response": "credits,videos,external_ids"
+        },
+    )
+
+
+async def enrich_media_metadata(
+    media_item_id: int,
+    filename: str,
+    media_type: str,
+    db_session,
+    parsed: Optional[Dict[str, Any]] = None,
+) -> bool:
+
     from app.database.repositories.media import MediaRepository
-    from app.database.repositories.services import SettingsRepository
-    from app.database.models import ExternalID, Artwork, Genre, Person
-    from datetime import datetime
-    
+    from app.database.models import (
+        ExternalID,
+        Artwork,
+        Genre,
+        Person,
+    )
+
     repo = MediaRepository(db_session)
-    settings_repo = SettingsRepository(db_session)
-    settings = settings_repo.get_all()
-    
-    api_key = settings.get("tmdb_api_key", "")
+    settings = SettingsRepository(db_session).get_all()
+
+    api_key = str(settings.get("tmdb_api_key", "") or "").strip()
+
     if not api_key:
-        logger.warning("No TMDB API key configured. Skipping metadata fetch.")
+        logger.info(
+            "TMDB API key not configured; metadata fetch skipped."
+        )
         return False
-    
-    title, year = extract_year_and_clean_title(filename)
-    logger.info(f"Fetching metadata for: '{title}' ({year})")
-    
-    # 1. Search TMDB
-    search_result = await fetch_from_tmdb(title, year, media_type, api_key)
-    if not search_result:
-        logger.warning(f"No TMDB results found for '{title}'")
-        return False
-    
-    tmdb_id = search_result.get("id")
-    
-    # 2. Get detailed info
-    details = await fetch_details_from_tmdb(tmdb_id, media_type, api_key)
-    if not details:
-        return False
-    
-    # 3. Update MediaItem
+
     item = repo.get_by_id(media_item_id)
+
     if not item:
         return False
-    
-    item.title = details.get("title") or details.get("name") or title
-    item.original_title = details.get("original_title") or details.get("original_name")
+
+    if parsed is None:
+        from app.scanner.scanner import parse_media_filename
+        parsed = parse_media_filename(filename)
+
+    effective_type = parsed.get("media_type") or media_type
+    title = parsed.get("title") or item.title
+    year = parsed.get("year")
+
+    logger.info(
+        f"Fetching TMDB metadata: '{title}' [{effective_type}]"
+    )
+
+    search_media_type = (
+        "movie" if effective_type == "movie" else "tv"
+    )
+
+    search_result = await fetch_from_tmdb(
+        title,
+        year,
+        search_media_type,
+        api_key,
+    )
+
+    if not search_result:
+        logger.warning(
+            f"No TMDB result found for '{title}'"
+        )
+        return False
+
+    tmdb_id = search_result.get("id")
+
+    if not tmdb_id:
+        return False
+
+    details = await fetch_details_from_tmdb(
+        tmdb_id,
+        search_media_type,
+        api_key,
+    )
+
+    if not details:
+        return False
+
+    episode_details = None
+
+    if effective_type == "episode":
+        season = parsed.get("season_number")
+        episode = parsed.get("episode_number")
+
+        if season is not None and episode is not None:
+            episode_details = await fetch_episode_details(
+                tmdb_id,
+                season,
+                episode,
+                api_key,
+            )
+
+    # --------------------------------------------------------
+    # MediaItem
+    # --------------------------------------------------------
+
+    item.title = (
+        details.get("title")
+        or details.get("name")
+        or title
+    )
+
+    item.original_title = (
+        details.get("original_title")
+        or details.get("original_name")
+    )
+
     item.description = details.get("overview")
-    item.year = year or (details.get("release_date") or details.get("first_air_date", ""))[:4]
+
+    date_value = (
+        details.get("release_date")
+        or details.get("first_air_date")
+        or ""
+    )
+
+    if isinstance(date_value, str) and date_value[:4].isdigit():
+        item.year = int(date_value[:4])
+
+    if date_value:
+        item.release_date = date_value
+
     item.rating = details.get("vote_average")
     item.votes = details.get("vote_count", 0)
-    item.runtime = details.get("runtime") or (details.get("episode_run_time", [0])[0] if details.get("episode_run_time") else 0)
+
+    runtime = details.get("runtime")
+
+    if not runtime:
+        runtimes = details.get("episode_run_time") or []
+        runtime = runtimes[0] if runtimes else None
+
+    item.runtime = runtime
+
+    # Keep the database media type aligned with the parsed media type.
+    if effective_type == "episode":
+        from app.database.models import MediaType
+
+        item.media_type = MediaType.EPISODE
+        item.season_number = parsed.get("season_number")
+        item.episode_number = parsed.get("episode_number")
+
+        if episode_details:
+            item.episode_title = (
+                episode_details.get("name")
+                or item.episode_title
+            )
+
+            if episode_details.get("overview"):
+                item.description = episode_details["overview"]
+
+            if episode_details.get("vote_average") is not None:
+                item.rating = episode_details["vote_average"]
+
+            if episode_details.get("vote_count") is not None:
+                item.votes = episode_details["vote_count"]
+
+            if episode_details.get("runtime"):
+                item.runtime = episode_details["runtime"]
+
+            if episode_details.get("air_date"):
+                item.release_date = episode_details["air_date"]
+
     repo.update(item)
-    
-    # 4. Add External ID
-    db_session.query(ExternalID).filter(ExternalID.media_item_id == media_item_id, ExternalID.provider == "tmdb").delete()
-    ext_id = ExternalID(
-        media_item_id=media_item_id,
-        provider="tmdb",
-        external_id=str(tmdb_id),
-        url=f"https://www.themoviedb.org/{'movie' if media_type == 'movie' else 'tv'}/{tmdb_id}"
+
+    # --------------------------------------------------------
+    # External IDs
+    # --------------------------------------------------------
+
+    db_session.query(ExternalID).filter(
+        ExternalID.media_item_id == media_item_id,
+        ExternalID.provider.in_(["tmdb", "imdb"]),
+    ).delete(synchronize_session=False)
+
+    db_session.add(
+        ExternalID(
+            media_item_id=media_item_id,
+            provider="tmdb",
+            external_id=str(tmdb_id),
+            url=(
+                f"https://www.themoviedb.org/"
+                f"{search_media_type}/{tmdb_id}"
+            ),
+        )
     )
-    db_session.add(ext_id)
-    
-    # 5. Add Artwork
-    base_img_url = "https://image.tmdb.org/t/p/w500"
-    base_img_url_orig = "https://image.tmdb.org/t/p/original"
-    
-    if details.get("poster_path"):
-        db_session.add(Artwork(
-            media_item_id=media_item_id, type="poster", 
-            url=f"{base_img_url}{details['poster_path']}", is_primary=True
-        ))
-    if details.get("backdrop_path"):
-        db_session.add(Artwork(
-            media_item_id=media_item_id, type="backdrop", 
-            url=f"{base_img_url_orig}{details['backdrop_path']}", is_primary=False
-        ))
-    
-    # 6. Add Genres
-    for g in details.get("genres", []):
-        genre = db_session.query(Genre).filter(Genre.name == g["name"]).first()
+
+    external_ids = details.get("external_ids") or {}
+    imdb_id = external_ids.get("imdb_id")
+
+    if imdb_id:
+        db_session.add(
+            ExternalID(
+                media_item_id=media_item_id,
+                provider="imdb",
+                external_id=imdb_id,
+                url=f"https://www.imdb.com/title/{imdb_id}/",
+            )
+        )
+
+    # --------------------------------------------------------
+    # Artwork
+    # --------------------------------------------------------
+
+    db_session.query(Artwork).filter(
+        Artwork.media_item_id == media_item_id
+    ).delete(synchronize_session=False)
+
+    poster_path = details.get("poster_path")
+    backdrop_path = details.get("backdrop_path")
+
+    if poster_path:
+        db_session.add(
+            Artwork(
+                media_item_id=media_item_id,
+                type="poster",
+                url=f"https://image.tmdb.org/t/p/w500{poster_path}",
+                is_primary=True,
+            )
+        )
+
+    if backdrop_path:
+        db_session.add(
+            Artwork(
+                media_item_id=media_item_id,
+                type="backdrop",
+                url=f"https://image.tmdb.org/t/p/original{backdrop_path}",
+                is_primary=False,
+            )
+        )
+
+    # --------------------------------------------------------
+    # Genres
+    # --------------------------------------------------------
+
+    item.genres.clear()
+
+    for genre_data in details.get("genres", []):
+        name = genre_data.get("name")
+
+        if not name:
+            continue
+
+        genre = (
+            db_session.query(Genre)
+            .filter(Genre.name == name)
+            .first()
+        )
+
         if not genre:
-            genre = Genre(name=g["name"])
+            genre = Genre(name=name)
             db_session.add(genre)
             db_session.flush()
+
         if genre not in item.genres:
             item.genres.append(genre)
-    
-    # 7. Add People (Cast)
-    for cast in details.get("credits", {}).get("cast", [])[:10]: # Top 10 cast
-        person = db_session.query(Person).filter(Person.name == cast["name"]).first()
+
+    # --------------------------------------------------------
+    # Cast
+    # --------------------------------------------------------
+
+    db_session.execute(
+        text(
+            "DELETE FROM media_people "
+            "WHERE media_id = :media_id"
+        ),
+        {"media_id": media_item_id},
+    )
+
+    cast_source = (
+        details.get("credits", {}).get("cast", [])
+    )
+
+    if episode_details:
+        episode_cast = (
+            episode_details.get("credits", {}).get("cast", [])
+        )
+
+        if episode_cast:
+            cast_source = episode_cast
+
+    for cast in cast_source[:10]:
+        name = cast.get("name")
+
+        if not name:
+            continue
+
+        person = (
+            db_session.query(Person)
+            .filter(Person.name == name)
+            .first()
+        )
+
         if not person:
-            person = Person(name=cast["name"], profile_path=cast.get("profile_path"))
+            person = Person(
+                name=name,
+                profile_path=cast.get("profile_path"),
+            )
             db_session.add(person)
             db_session.flush()
-        
-        # Check if association already exists
-        exists = db_session.execute(
-            "SELECT 1 FROM media_people WHERE media_id = :mid AND person_id = :pid",
-            {"mid": media_item_id, "pid": person.id}
-        ).fetchone()
-        
-        if not exists:
-            # We need to use the association table directly or via relationship
-            # For simplicity in this script, we'll rely on the relationship if set up correctly, 
-            # but let's do a direct insert to be safe with the secondary table
-            from sqlalchemy import text
-            db_session.execute(
-                text("INSERT INTO media_people (media_id, person_id, role, character_name) VALUES (:mid, :pid, :role, :char)"),
-                {"mid": media_item_id, "pid": person.id, "role": "actor", "char": cast.get("character")}
-            )
-    
+
+        db_session.execute(
+            text(
+                """
+                INSERT INTO media_people
+                    (id, media_id, person_id, role, character_name)
+                VALUES
+                    (
+                        COALESCE((SELECT MAX(id) + 1 FROM media_people), 1),
+                        :mid,
+                        :pid,
+                        :role,
+                        :character_name
+                    )
+                """
+            ),
+            {
+                "mid": media_item_id,
+                "pid": person.id,
+                "role": "actor",
+                "character_name": cast.get("character"),
+            },
+        )
+
     db_session.commit()
-    logger.info(f"Successfully enriched metadata for '{item.title}'")
+
+    logger.info(
+        f"Metadata enriched successfully: media_id={media_item_id}"
+    )
+
     return True

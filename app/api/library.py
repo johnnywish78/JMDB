@@ -6,6 +6,7 @@ from app.database.repositories.media import MediaRepository
 from app.database.models import Library, MediaType, MediaItem, MediaStatus, MediaFile
 from app.config import get_settings
 from app.scanner.scanner import scan_directory
+from app.metadata.fetcher import enrich_media_metadata
 from app.logging import get_logger
 from datetime import datetime
 import asyncio
@@ -131,6 +132,7 @@ def run_scan(library_id: int, path: str, media_type: str):
                 
                 if existing:
                     new_media_type = MediaType(file_info["media_type"])
+                    changed = False
 
                     if existing.media_type != new_media_type:
                         logger.info(
@@ -138,6 +140,25 @@ def run_scan(library_id: int, path: str, media_type: str):
                             f"{existing.media_type.value} -> {new_media_type.value}"
                         )
                         existing.media_type = new_media_type
+                        changed = True
+
+                    if existing.title != file_info.get("title"):
+                        existing.title = file_info.get("title") or existing.title
+                        changed = True
+
+                    if existing.year != file_info.get("year"):
+                        existing.year = file_info.get("year")
+                        changed = True
+
+                    if existing.season_number != file_info.get("season_number"):
+                        existing.season_number = file_info.get("season_number")
+                        changed = True
+
+                    if existing.episode_number != file_info.get("episode_number"):
+                        existing.episode_number = file_info.get("episode_number")
+                        changed = True
+
+                    if changed:
                         media_repo.update(existing)
 
                     continue
@@ -145,7 +166,12 @@ def run_scan(library_id: int, path: str, media_type: str):
                 item = MediaItem(
                     library_id=library_id,
                     media_type=MediaType(file_info["media_type"]),
-                    title=file_info["file_name"].rsplit('.', 1)[0],
+                    title=file_info.get("title")
+                    or file_info["file_name"].rsplit(".", 1)[0],
+                    year=file_info.get("year"),
+                    season_number=file_info.get("season_number"),
+                    episode_number=file_info.get("episode_number"),
+                    episode_title=file_info.get("episode_title"),
                     status=MediaStatus.AVAILABLE,
                     scanned_at=datetime.utcnow()
                 )
@@ -160,6 +186,35 @@ def run_scan(library_id: int, path: str, media_type: str):
                 )
                 
                 scan_state["media_added"] += 1
+
+                # Metadata is optional and must never break filesystem scanning.
+                try:
+                    from app.database.repositories.services import SettingsRepository
+
+                    settings = SettingsRepository(db).get_all()
+                    auto_fetch = str(
+                        settings.get("auto_fetch_metadata", "false")
+                    ).lower() == "true"
+
+                    if auto_fetch and file_info["media_type"] in (
+                        "movie",
+                        "episode",
+                    ):
+                        asyncio.run(
+                            enrich_media_metadata(
+                                media_item_id=item.id,
+                                filename=file_info["file_name"],
+                                media_type=file_info["media_type"],
+                                db_session=db,
+                                parsed=file_info,
+                            )
+                        )
+
+                except Exception as metadata_error:
+                    logger.warning(
+                        f"Metadata fetch skipped for "
+                        f"{file_info['file_path']}: {metadata_error}"
+                    )
                 
             except Exception as e:
                 scan_state["errors"] += 1

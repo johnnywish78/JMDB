@@ -25,6 +25,9 @@ def item_dict(item, full=False):
         "description": item.description,
         "year": item.year,
         "runtime": item.runtime,
+        "season_number": item.season_number,
+        "episode_number": item.episode_number,
+        "episode_title": item.episode_title,
         "rating": item.rating,
         "votes": item.votes,
         "favorite": item.favorite,
@@ -176,6 +179,60 @@ def update_media(media_id: int, data: dict, db: Session = Depends(get_db)):
     
     updated = repo.update(item)
     return item_dict(updated)
+
+@router.post("/media/{media_id}/metadata")
+async def fetch_media_metadata(
+    media_id: int,
+    db: Session = Depends(get_db),
+):
+    """Fetch and save metadata for one media item."""
+    from app.metadata.fetcher import enrich_media_metadata
+
+    repo = MediaRepository(db)
+    item = repo.get_by_id(media_id)
+
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail="Media not found"
+        )
+
+    if not item.files:
+        raise HTTPException(
+            status_code=400,
+            detail="Media item has no associated file"
+        )
+
+    try:
+        success = await enrich_media_metadata(
+            media_item_id=item.id,
+            filename=item.files[0].file_name,
+            media_type=item.media_type.value,
+            db_session=db,
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail=f"Metadata fetch failed: {e}"
+        )
+
+    if not success:
+        raise HTTPException(
+            status_code=424,
+            detail=(
+                "Metadata could not be fetched. "
+                "Check TMDB API configuration."
+            )
+        )
+
+    updated = repo.get_by_id(media_id)
+
+    return {
+        "status": "updated",
+        "item": item_dict(updated, full=True),
+    }
+
 
 @router.delete("/media/{media_id}")
 def delete_media(media_id: int, db: Session = Depends(get_db)):

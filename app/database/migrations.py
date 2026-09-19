@@ -89,6 +89,49 @@ def run_migrations(engine):
             current = 2
             logger.info("Migration v2 applied successfully")
 
+        if current < 3:
+            logger.info(
+                "Applying migration v3 - Adding TV episode metadata..."
+            )
+
+            columns = {
+                row[1]
+                for row in conn.execute(
+                    text("PRAGMA table_info(media_items)")
+                ).fetchall()
+            }
+
+            additions = [
+                ("season_number", "INTEGER"),
+                ("episode_number", "INTEGER"),
+                ("episode_title", "VARCHAR(500)"),
+            ]
+
+            for column_name, column_definition in additions:
+                if column_name not in columns:
+                    logger.info(
+                        "Adding media_items.%s",
+                        column_name,
+                    )
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE media_items "
+                            f"ADD COLUMN {column_name} "
+                            f"{column_definition}"
+                        )
+                    )
+
+            conn.execute(
+                text(
+                    "INSERT INTO schema_migrations (version) "
+                    "VALUES (3)"
+                )
+            )
+            conn.commit()
+
+            current = 3
+            logger.info("Migration v3 applied successfully")
+
         logger.info(
             "Database schema is up to date (version %s)",
             current,

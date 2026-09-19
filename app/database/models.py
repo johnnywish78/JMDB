@@ -11,6 +11,7 @@ Base = declarative_base()
 class MediaType(str, enum.Enum):
     MOVIE = "movie"
     TV_SHOW = "tv_show"
+    EPISODE = "episode"
     MUSIC = "music"
     OTHER = "other"
 
@@ -65,6 +66,11 @@ class MediaItem(Base):
     year = Column(Integer)
     release_date = Column(String(50))
     runtime = Column(Integer)
+
+    # TV episode metadata
+    season_number = Column(Integer)
+    episode_number = Column(Integer)
+    episode_title = Column(String(500))
     
     rating = Column(Float)
     votes = Column(Integer, default=0)
