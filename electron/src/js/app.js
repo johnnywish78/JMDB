@@ -1002,7 +1002,7 @@ const App = {
   },
 
   async showMediaDetail(mediaId) {
-    const container = document.getElementById('app-content');
+    const container = document.getElementById('page-container');
     if (!container) return;
 
     const id = Number(mediaId);
@@ -1193,7 +1193,7 @@ const App = {
                 <button
                   class="btn btn-primary media-detail-play"
                   type="button"
-                  onclick="App.loadPlayer(${id})"
+                  onclick="App.loadPlayer(${Number(item.id)})"
                 >
                   ▶ Play
                 </button>
@@ -1201,7 +1201,7 @@ const App = {
                 <button
                   class="btn btn-secondary"
                   type="button"
-                  onclick="App.toggleMediaFavorite(${id}, this)"
+                  onclick="App.toggleMediaFavorite(${Number(item.id)}, this)"
                 >
                   ${item.favorite ? '★ Favorite' : '☆ Add Favorite'}
                 </button>
@@ -1569,6 +1569,8 @@ const App = {
     return div.innerHTML;
   }
 };
+
+window.App = App;
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => App.init());
