@@ -27,6 +27,9 @@ data/database/*.db-shm
 data/database/*.db-wal
 data/logs/*.log
 
+# Browser runtime state
+data/browser-state.json
+
 # Runtime / cache
 .cache/
 *.tmp
