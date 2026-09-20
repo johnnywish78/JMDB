@@ -5,7 +5,7 @@ from app.config import get_settings
 from app.logging import setup_logging, get_logger
 from app.database.connection import init_database, get_engine
 from app.database.migrations import run_migrations
-from app.api import health, media, library, search, people, services, settings, playback, system
+from app.api import health, media, library, search, people, services, settings, playback, system, browser
 
 logger = get_logger("main")
 
@@ -33,6 +33,7 @@ app.include_router(services.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(playback.router, prefix="/api")
 app.include_router(system.router, prefix="/api")
+app.include_router(browser.router)
 
 @app.get("/")
 def root():

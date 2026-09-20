@@ -2,6 +2,11 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
+const browserContextMenu = require('./main/browser/context-menu');
+const browserDownloads = require('./main/browser/downloads');
+const browserHistory = require('./main/browser/history');
+const browserPermissions = require('./main/browser/permissions');
+
 
 // Check if we're running inside Electron
 const isElectron = typeof process !== 'undefined' && 
@@ -391,6 +396,149 @@ function createWindow() {
   });
 }
 
+// Browser IPC
+ipcMain.handle('backend-url', () => {
+  const port = process.env.JMDB_BACKEND_PORT || '8765';
+  return `http://127.0.0.1:${port}`;
+});
+
+ipcMain.handle('open-external', async (event, url) => {
+  if (!url) return { ok: false };
+  await shell.openExternal(url);
+  return { ok: true };
+});
+
+ipcMain.handle('open-chrome', async (event, url) => {
+  if (!url) return { ok: false };
+  await shell.openExternal(url);
+  return { ok: true };
+});
+
+ipcMain.handle('show-context-menu', async (event, options = {}) => {
+  if (!mainWindow) return { ok: false };
+
+  browserContextMenu.show(
+    mainWindow,
+    options.webviewId,
+    {
+      linkURL: options.linkURL || '',
+      srcURL: options.srcURL || '',
+      mediaType: options.mediaType || '',
+      hasText: !!options.text,
+      selectionText: options.text || '',
+      isEditable: !!options.isEditable,
+      canGoBack: !!options.canGoBack,
+      canGoForward: !!options.canGoForward,
+    }
+  );
+
+  return { ok: true };
+});
+
+ipcMain.handle('context-menu-action', (event, data) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('context-menu-action', data);
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('download-url', async (event, { url } = {}) => {
+  if (!mainWindow || !url) return { ok: false };
+
+  try {
+    mainWindow.webContents.session.downloadURL(url);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-downloads', () => {
+  return browserDownloads.getAll();
+});
+
+ipcMain.handle('print-page', async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+
+  mainWindow.webContents.print({
+    silent: false,
+    printBackground: true,
+  });
+
+  return { ok: true };
+});
+
+ipcMain.handle('export-pdf', async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+
+  try {
+    const data = await mainWindow.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+    });
+
+    const result = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: 'page.pdf',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { ok: false, error: 'cancelled' };
+    }
+
+    fs.writeFileSync(result.filePath, data);
+    return { ok: true, path: result.filePath };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle('clear-browser-data', async (event, { types = [] } = {}) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+
+  const session = mainWindow.webContents.session;
+
+  try {
+    if (types.includes('cache')) {
+      await session.clearCache();
+    }
+
+    if (types.includes('cookies')) {
+      await session.clearStorageData();
+      await session.cookies.deleteAll();
+    }
+
+    if (types.includes('history')) {
+      browserHistory.clear();
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-history', (event, { query } = {}) => {
+  return query
+    ? browserHistory.search(query)
+    : browserHistory.getAll();
+});
+
+ipcMain.handle('add-history', (event, { url, title } = {}) => {
+  browserHistory.add(url, title);
+  return { ok: true };
+});
+
+ipcMain.handle('clear-history', () => {
+  browserHistory.clear();
+  return { ok: true };
+});
+
+ipcMain.handle('respond-permission', (event, { id, granted } = {}) => {
+  browserPermissions.respond(id, !!granted);
+  return { ok: true };
+});
+
 // IPC Handlers
 ipcMain.handle('get-backend-port', () => process.env.JMDB_BACKEND_PORT || '8765');
 
@@ -460,7 +608,21 @@ ipcMain.handle('open-file', async (event, options) => {
   return result.filePaths[0];
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+
+  browserDownloads.init(mainWindow);
+  browserPermissions.setup(mainWindow);
+
+  mainWindow.webContents.on('did-attach-webview', (event, webContents) => {
+    webContents.setWindowOpenHandler(({ url }) => {
+      if (url && /^https?:\/\//i.test(url)) {
+        mainWindow.webContents.send('browser-open-in-tab', { url });
+      }
+      return { action: 'deny' };
+    });
+  });
+});
 
 app.on('before-quit', () => {
   stopMpv();

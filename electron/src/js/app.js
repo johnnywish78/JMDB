@@ -938,15 +938,33 @@ const App = {
     if (results) results.style.display = 'none';
   },
 
-  renderBrowser(container) {
-    container.innerHTML = '<div id="browser-host" style="height:100%;"></div>';
-    setTimeout(() => {
-      if (typeof Browser !== 'undefined') {
-        Browser.init(document.getElementById('browser-host'));
-      } else {
-        container.innerHTML = '<div class="empty-state"><p>Browser module not loaded</p></div>';
+  async renderBrowser(container) {
+    try {
+      if (
+        window.Views &&
+        window.Views.browser &&
+        typeof window.Views.browser.render === 'function'
+      ) {
+        await window.Views.browser.render(container, {});
+        return;
       }
-    }, 100);
+
+      if (
+        window.BrowserHub &&
+        typeof window.BrowserHub.render === 'function'
+      ) {
+        await window.BrowserHub.render(container, {});
+        return;
+      }
+
+      console.error('[JMDB] BrowserHub is not available');
+      container.innerHTML =
+        '<div class="empty-state"><p>Browser module not loaded</p></div>';
+    } catch (error) {
+      console.error('[JMDB] Browser initialization failed:', error);
+      container.innerHTML =
+        '<div class="empty-state"><p>Browser failed to initialize</p></div>';
+    }
   },
 
   renderPlayer(container) {

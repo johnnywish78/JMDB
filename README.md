@@ -1,4 +1,56 @@
 # JMDB
+
+CURRENT IMPLEMENTATION STATUS
+============================================================
+
+This section records the current implementation state.
+It does NOT replace or weaken the Master Build Specification
+above. Features are considered complete only after their
+required implementation and acceptance tests pass.
+
+Current verified state:
+
+• JMDB identity is implemented as:
+  JMDB — Johnny's Media Database
+  Version 1.0.0
+
+• The embedded Browser Hub is implemented as a real Electron/
+  Chromium browser subsystem.
+
+• Browser tabs are functional.
+
+• Browser navigation and web content interaction are functional.
+
+• Browser login/session persistence has been verified manually.
+
+• Browser settings UI is integrated.
+
+• Browser state persistence is connected to the JMDB backend.
+
+• Browser tabs and favorites use persistent backend state.
+
+• Browser downloads, history, permissions and context-menu
+  integration are wired through the Electron main process.
+
+• Browser-related backend routes are implemented under
+  /services/tabs and /services/favorites.
+
+• The application About section identifies JMDB correctly.
+
+• The current implementation has been validated without
+  performing video playback tests.
+
+• MPV/video playback acceptance remains pending because the
+  current development hardware/graphics environment is not
+  considered safe for playback stress testing.
+
+• Full Linux/Windows production acceptance, packaging,
+  complete media-library acceptance, metadata acceptance,
+  playback acceptance and complete end-to-end acceptance
+  remain subject to the Master Build Specification.
+
+============================================================
+
 ============================================================
 JMDB — JOHNNY'S MEDIA DATABASE
 MASTER BUILD SPECIFICATION
