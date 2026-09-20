@@ -91,7 +91,8 @@ def parse_media_filename(filename: str) -> Dict:
 
         title_part = stem[:episode_match.start()]
 
-        year_match = YEAR_RE.search(title_part)
+        year_matches = list(YEAR_RE.finditer(title_part))
+        year_match = year_matches[-1] if year_matches else None
         if year_match:
             title_part = title_part[:year_match.start()]
 
@@ -107,7 +108,8 @@ def parse_media_filename(filename: str) -> Dict:
             "episode_title": None,
         }
 
-    year_match = YEAR_RE.search(stem)
+    year_matches = list(YEAR_RE.finditer(stem))
+    year_match = year_matches[-1] if year_matches else None
     year = int(year_match.group(1)) if year_match else None
 
     title_part = stem

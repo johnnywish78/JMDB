@@ -1,3 +1,4 @@
+import re
 import httpx
 from typing import Optional, Dict, Any
 
@@ -75,22 +76,38 @@ async def fetch_from_tmdb(
 
     search_type = "movie" if media_type == "movie" else "tv"
 
-    params = {"query": title}
+    candidates = [title.strip()]
 
-    if year:
-        if search_type == "movie":
-            params["year"] = str(year)
-        else:
-            params["first_air_date_year"] = str(year)
+    stripped_title = re.sub(
+        r"^\d{1,2}\s+",
+        "",
+        title.strip(),
+    ).strip()
 
-    data = await _tmdb_get(
-        f"search/{search_type}",
-        api_key,
-        params,
-    )
+    if stripped_title and stripped_title != candidates[0]:
+        candidates.append(stripped_title)
 
-    results = data.get("results", []) if data else []
-    return results[0] if results else None
+    for candidate in candidates:
+        params = {"query": candidate}
+
+        if year:
+            if search_type == "movie":
+                params["year"] = str(year)
+            else:
+                params["first_air_date_year"] = str(year)
+
+        data = await _tmdb_get(
+            f"search/{search_type}",
+            api_key,
+            params,
+        )
+
+        results = data.get("results", []) if data else []
+
+        if results:
+            return results[0]
+
+    return None
 
 
 async def fetch_details_from_tmdb(

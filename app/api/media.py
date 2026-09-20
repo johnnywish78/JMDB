@@ -34,7 +34,17 @@ def item_dict(item, full=False):
         "status": item.status.value if item.status else "available",
         "created_at": item.created_at.isoformat() if item.created_at else None
     }
-    
+
+    # Lightweight artwork for Library cards.
+    # Full artwork/details remain available through item_dict(..., full=True).
+    r["artwork"] = [{
+        "id": a.id,
+        "type": a.type,
+        "url": a.url,
+        "local_path": a.local_path,
+        "is_primary": a.is_primary
+    } for a in item.artwork]
+
     if full:
         r["files"] = [{
             "id": f.id,
@@ -55,14 +65,6 @@ def item_dict(item, full=False):
             "name": p.name,
             "role": p.role if hasattr(p, 'role') else "actor"
         } for p in item.people]
-        
-        r["artwork"] = [{
-            "id": a.id,
-            "type": a.type,
-            "url": a.url,
-            "local_path": a.local_path,
-            "is_primary": a.is_primary
-        } for a in item.artwork]
         
         r["external_ids"] = [{
             "provider": e.provider,
