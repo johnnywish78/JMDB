@@ -248,7 +248,8 @@ const App = {
       activity: () => this.renderActivity(container),
       help: () => this.renderHelp(container),
       about: () => this.renderAbout(container),
-      diagnostics: () => this.renderDiagnostics(container)
+      diagnostics: () => this.renderDiagnostics(container),
+      person: () => this.renderPersonDetail(container, params.id)
     };
 
     (pageRenderers[page] || (() => {
@@ -1048,6 +1049,7 @@ const App = {
       }
 
       const item = await res.json();
+
       this.renderMediaDetail(container, item);
     } catch (e) {
       console.error('Failed to load media detail:', e);
@@ -1098,6 +1100,56 @@ const App = {
       ? item.external_ids
       : [];
 
+    const trailer = item.trailer || null;
+
+    const youtubeTrailer = trailer && trailer.key
+      && String(trailer.site || '').toLowerCase() === 'youtube'
+      ? trailer
+      : null;
+
+    let imdbUrl = trailer && trailer.imdb_url
+      ? String(trailer.imdb_url)
+      : '';
+
+    if (!imdbUrl) {
+      const imdbExternal = externalIds.find((entry) => {
+        const provider = String(entry.provider || '').toLowerCase();
+        const id = String(entry.external_id || '').trim();
+        const url = String(entry.url || '').trim();
+
+        return provider === 'imdb'
+          || id.startsWith('tt')
+          || /imdb\.com\/title\/tt\d+/i.test(url);
+      });
+
+      if (imdbExternal) {
+        const id = String(imdbExternal.external_id || '').trim();
+        const url = String(imdbExternal.url || '').trim();
+
+        if (url.startsWith('http')) {
+          imdbUrl = url;
+        } else if (id.startsWith('tt')) {
+          imdbUrl = `https://www.imdb.com/title/${id}/`;
+        }
+      }
+    }
+
+    console.log('[JMDB TRAILER UI DEBUG]', JSON.stringify({
+      id: item.id,
+      title: item.title,
+      hasTrailerObject: Boolean(item.trailer),
+      youtubeTrailer: Boolean(youtubeTrailer),
+      imdbUrl,
+      externalIds: item.external_ids
+    }, null, 2));
+
+    console.log('[JMDB TRAILER CONDITION]', {
+      shouldRenderTrailerSection: Boolean(youtubeTrailer || imdbUrl),
+      youtubeTrailer: Boolean(youtubeTrailer),
+      imdbUrlPresent: Boolean(imdbUrl)
+    });
+
+
     const rating = item.rating != null
       ? Number(item.rating).toFixed(1)
       : '';
@@ -1137,13 +1189,33 @@ const App = {
       : '<span class="media-detail-muted">No genres listed</span>';
 
     const peopleHtml = people.length
-      ? people.slice(0, 8).map(p => `
-          <span class="media-detail-person">
-            ${escape(p.name)}
-            ${p.role ? `<small>${escape(p.role)}</small>` : ''}
-          </span>
+      ? people.slice(0, 12).map(p => `
+          <button
+            class="media-detail-person"
+            type="button"
+            onclick="App.showPersonDetail(${Number(p.id)})"
+            title="${escape(p.name || '')}"
+          >
+            ${p.profile_url
+              ? `<img
+                   src="${this.escapeHtml(p.profile_url)}"
+                   alt="${escape(p.name || '')}"
+                   loading="lazy"
+                 >`
+              : '<span class="media-detail-person-avatar">◎</span>'
+            }
+            <span class="media-detail-person-copy">
+              <strong>${escape(p.name || 'Unknown')}</strong>
+              ${p.character_name
+                ? `<small>${escape(p.character_name)}</small>`
+                : p.role
+                  ? `<small>${escape(p.role)}</small>`
+                  : ''
+              }
+            </span>
+          </button>
         `).join('')
-      : '<span class="media-detail-muted">No cast information</span>';
+      : '<span class="media-detail-muted">No cast or crew information</span>';
 
     const externalHtml = externalIds.length
       ? externalIds.map(e => `
@@ -1227,6 +1299,70 @@ const App = {
 
               ${progressHtml}
 
+              ${(youtubeTrailer || imdbUrl) ? `
+                <div class="media-detail-section media-detail-trailer-section">
+                  <div class="media-detail-section-label">TRAILER</div>
+
+                  <div class="media-detail-trailer-grid">
+                    ${youtubeTrailer ? `
+                      <button
+                        class="media-detail-trailer"
+                        type="button"
+                        data-trailer-key="${escape(youtubeTrailer.key)}"
+                        data-trailer-name="${escape(youtubeTrailer.name || 'Trailer')}"
+                        onclick="App.playTrailer(this)"
+                        aria-label="Play trailer"
+                      >
+                        <img
+                          src="${this.escapeHtml(
+                            youtubeTrailer.thumbnail_url ||
+                            `https://img.youtube.com/vi/${youtubeTrailer.key}/hqdefault.jpg`
+                          )}"
+                          alt="${escape(youtubeTrailer.name || 'Trailer')}"
+                          loading="lazy"
+                        >
+
+                        <span class="media-detail-trailer-shade"></span>
+
+                        <span class="media-detail-trailer-play">
+                          <span>▶</span>
+                        </span>
+
+                        <span class="media-detail-trailer-copy">
+                          <strong>
+                            ${escape(youtubeTrailer.name || 'Trailer')}
+                          </strong>
+                          ${youtubeTrailer.official ? `
+                            <small>Official Trailer · YouTube</small>
+                          ` : `
+                            <small>Watch Trailer · YouTube</small>
+                          `}
+                        </span>
+                      </button>
+                    ` : ''}
+
+                    ${imdbUrl ? `
+                      <button
+                        class="media-detail-imdb-trailer"
+                        type="button"
+                        data-imdb-url="${escape(imdbUrl)}"
+                        onclick="App.openTrailerOnIMDb(this)"
+                        aria-label="Watch trailer on IMDb"
+                      >
+                        <span class="media-detail-imdb-mark">IMDb</span>
+
+                        <span class="media-detail-imdb-copy">
+                          <strong>Watch Trailer on IMDb</strong>
+                          <small>Official IMDb page · trailer and videos</small>
+                        </span>
+
+                        <span class="media-detail-imdb-arrow">↗</span>
+                      </button>
+                    ` : ''}
+                  </div>
+                </div>
+              ` : ''}
+
               <div class="media-detail-section">
                 <div class="media-detail-section-label">GENRES</div>
                 <div class="media-detail-chips">${genreHtml}</div>
@@ -1248,6 +1384,300 @@ const App = {
         </div>
       </section>
     `;
+  },
+
+  playTrailer(button) {
+    if (!button) return;
+
+    const key = button.dataset.trailerKey;
+    const name = button.dataset.trailerName || 'Trailer';
+
+    if (!key) {
+      this.toast('Trailer is unavailable', 'error');
+      return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'media-detail-trailer-player';
+
+    const iframe = document.createElement('iframe');
+    iframe.src =
+      `https://www.youtube.com/embed/${encodeURIComponent(key)}` +
+      '?autoplay=1&rel=0&modestbranding=1&origin=http%3A%2F%2F127.0.0.1%3A8765';
+    iframe.title = name;
+    iframe.allow =
+      'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+    iframe.allowFullscreen = true;
+    iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+
+    wrapper.appendChild(iframe);
+
+    button.replaceWith(wrapper);
+  },
+
+  openTrailerOnIMDb(button) {
+    if (!button) return;
+
+    const url = String(button.dataset.imdbUrl || '').trim();
+
+    if (!/^https:\/\/www\.imdb\.com\/title\/tt\d+\/?(?:[?#].*)?$/i.test(url)) {
+      this.toast('IMDb trailer page is unavailable', 'error');
+      return;
+    }
+
+    if (
+      window.BrowserHub &&
+      typeof window.BrowserHub.openInNewTab === 'function'
+    ) {
+      this.toast('Opening IMDb trailer in JMDB Browser…', 'success');
+
+      window.BrowserHub.openInNewTab(url, 'IMDb · Trailer');
+
+      // JMDB uses App.nav() for SPA navigation.
+      // BrowserHub.openInNewTab() queues the URL when Browser is not active,
+      // then BrowserHub.render() consumes that pending tab.
+      this.nav('browser');
+
+      return;
+    }
+
+    this.toast('JMDB Browser is unavailable', 'error');
+  },
+
+  showPersonDetail(personId) {
+    const id = Number(personId);
+
+    if (!Number.isFinite(id) || id <= 0) {
+      this.toast('Invalid person', 'error');
+      return;
+    }
+
+    // JMDB uses internal SPA navigation, not browser history.
+    this.personBackTarget = {
+      page: this.currentPage || 'library',
+      mediaId: Number.isFinite(Number(this.currentMediaId))
+        ? Number(this.currentMediaId)
+        : null
+    };
+
+    this.nav('person', { id });
+  },
+
+  backFromPerson() {
+    const target = this.personBackTarget;
+    this.personBackTarget = null;
+
+    if (target && target.mediaId > 0) {
+      this.showMediaDetail(target.mediaId);
+      return;
+    }
+
+    if (
+      target &&
+      target.page &&
+      target.page !== 'person' &&
+      target.page !== 'detail'
+    ) {
+      this.nav(target.page);
+      return;
+    }
+
+    this.nav('library', { type: 'all' });
+  },
+
+  async renderPersonDetail(container, personId) {
+    const id = Number(personId);
+
+    if (!Number.isFinite(id) || id <= 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <h2>Person not found</h2>
+          <p>Invalid person identifier.</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <section class="person-detail-page">
+        <div class="person-detail-loading">
+          <span class="loading-pulse"></span>
+          <span>Loading person…</span>
+        </div>
+      </section>
+    `;
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${this.port}/api/people/${id}`
+      );
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const person = await res.json();
+      const profile = person.profile_url || (
+        person.profile_path
+          ? `https://image.tmdb.org/t/p/w342${person.profile_path}`
+          : ''
+      );
+
+      const credits = Array.isArray(person.credits)
+        ? person.credits
+        : [];
+
+      const profileHtml = profile
+        ? `
+          <img
+            class="person-detail-profile"
+            src="${this.escapeHtml(profile)}"
+            alt="${this.escapeHtml(person.name || 'Person')}"
+          >
+        `
+        : `
+          <div class="person-detail-profile person-detail-profile-fallback">
+            <span>${this.escapeHtml(
+              String(person.name || '?').charAt(0).toUpperCase()
+            )}</span>
+          </div>
+        `;
+
+      const facts = [
+        person.known_for_department
+          ? `<span>${this.escapeHtml(person.known_for_department)}</span>`
+          : '',
+        person.birthday
+          ? `<span>Born ${this.escapeHtml(person.birthday)}</span>`
+          : '',
+        person.deathday
+          ? `<span>Died ${this.escapeHtml(person.deathday)}</span>`
+          : '',
+        person.place_of_birth
+          ? `<span>${this.escapeHtml(person.place_of_birth)}</span>`
+          : ''
+      ].filter(Boolean).join('<span class="media-detail-dot">•</span>');
+
+      const creditsHtml = credits.length
+        ? credits.map(media => `
+            <button
+              class="person-credit-card"
+              type="button"
+              onclick="App.showMediaDetail(${Number(media.id)})"
+            >
+              <div class="person-credit-poster">
+                ${media.poster_url || media.poster_path
+                  ? `<img
+                       src="${this.escapeHtml(
+                         media.poster_url
+                           || (String(media.poster_path).startsWith('http')
+                             ? media.poster_path
+                             : `https://image.tmdb.org/t/p/w185${media.poster_path}`)
+                       )}"
+                       alt="${this.escapeHtml(media.title || 'Untitled')}"
+                       loading="lazy"
+                     >`
+                  : '<div class="person-credit-poster-fallback">J</div>'
+                }
+              </div>
+              <span class="person-credit-copy">
+                <strong>${this.escapeHtml(media.title || 'Untitled')}</strong>
+                <small>${this.escapeHtml(
+                  media.role || media.media_type || 'credit'
+                )}</small>
+                ${media.character_name
+                  ? `<small>${this.escapeHtml(media.character_name)}</small>`
+                  : ''
+                }
+              </span>
+            </button>
+          `).join('')
+        : '<div class="media-detail-muted">No filmography available.</div>';
+
+      container.innerHTML = `
+        <section class="person-detail-page">
+          <div class="person-detail-content">
+
+            <button
+              class="media-detail-back"
+              type="button"
+              onclick="App.backFromPerson()"
+            >
+              <span>←</span> Back
+            </button>
+
+            <div class="person-detail-hero">
+              <div class="person-detail-profile-wrap">
+                ${profileHtml}
+              </div>
+
+              <div class="person-detail-info">
+                <span class="media-detail-kicker">
+                  ${this.escapeHtml(
+                    person.known_for_department || 'PERSON'
+                  ).toUpperCase()}
+                </span>
+
+                <h1 class="media-detail-title">
+                  ${this.escapeHtml(person.name || 'Unknown Person')}
+                </h1>
+
+                ${facts ? `
+                  <div class="media-detail-meta">
+                    ${facts}
+                  </div>
+                ` : ''}
+
+                ${person.biography ? `
+                  <p class="media-detail-description">
+                    ${this.escapeHtml(person.biography)}
+                  </p>
+                ` : ''}
+
+                <div class="media-detail-actions">
+                  ${person.tmdb_id ? `
+                    <span class="media-detail-chip">
+                      TMDB #${this.escapeHtml(person.tmdb_id)}
+                    </span>
+                  ` : ''}
+                  ${person.imdb_id ? `
+                    <span class="media-detail-chip">
+                      IMDb ${this.escapeHtml(person.imdb_id)}
+                    </span>
+                  ` : ''}
+                </div>
+              </div>
+            </div>
+
+            <div class="media-detail-section">
+              <div class="media-detail-section-label">
+                FILMOGRAPHY & CREDITS
+              </div>
+              <div class="person-credits-grid">
+                ${creditsHtml}
+              </div>
+            </div>
+
+          </div>
+        </section>
+      `;
+    } catch (error) {
+      console.error('[JMDB People] Failed to load person:', error);
+
+      container.innerHTML = `
+        <div class="empty-state">
+          <h2>Could not load person</h2>
+          <p>${this.escapeHtml(error.message || 'Unknown error')}</p>
+          <button
+            class="btn btn-secondary"
+            type="button"
+            onclick="App.nav('library', {type:'all'})"
+          >
+            Back to Library
+          </button>
+        </div>
+      `;
+    }
   },
 
   async toggleMediaFavorite(mediaId, button) {

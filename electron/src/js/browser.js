@@ -20,10 +20,32 @@ window.BrowserHub = (function () {
   function setStart(url) { startUrl = url || "about:blank"; }
 
   function queueOpen(url, title) {
-    pendingOpen = { url, title };
-    if (window.navigate) window.navigate("browser");
-    else return true;
+    if (!url || !/^https?:\/\//i.test(url)) return false;
+
+    pendingOpen = {
+      url,
+      title: title || url,
+    };
+
+    if (window.navigate) {
+      window.navigate("browser");
+    }
+
     return true;
+  }
+
+  function openInNewTab(url, title) {
+    if (!url || !/^https?:\/\//i.test(url)) return false;
+
+    // If Browser Hub is already rendered, create the tab immediately.
+    if (document.getElementById("browser-hub")) {
+      addTab(url, title || url);
+      render();
+      return true;
+    }
+
+    // Otherwise queue it and let BrowserHub.render() consume it.
+    return queueOpen(url, title);
   }
 
   // ---- persistence -------------------------------------------------------
@@ -135,16 +157,25 @@ window.BrowserHub = (function () {
 
   // ---- render ------------------------------------------------------------
   function render() {
-    const view =
+    const pageContainer =
+      document.getElementById("page-container") ||
       document.getElementById("view") ||
       document.querySelector(".main-content");
     const { el, openExternal } = window.ui;
 
-    if (!view) {
+    if (!pageContainer) {
       throw new Error("[JMDB Browser] Browser container not found");
     }
 
-    view.replaceChildren();
+    // Keep the JMDB application shell intact.
+    // Browser Hub is the current page rendered inside page-container.
+    const existingBrowser = pageContainer.querySelector(".browser-hub");
+    if (existingBrowser) {
+      existingBrowser.remove();
+    }
+
+    // Clear only the current page content, never the application shell.
+    pageContainer.replaceChildren();
 
     const root = el("div", "browser-hub");
     const tabstrip = el("div", "browser-tabs");
@@ -322,7 +353,7 @@ window.BrowserHub = (function () {
     // download bar
     root.appendChild(window.DownloadBar.getBarElement());
 
-    view.appendChild(root);
+    pageContainer.appendChild(root);
   }
 
   // ---- frame wiring ------------------------------------------------------
@@ -787,6 +818,7 @@ window.BrowserHub = (function () {
       render();
     },
     queueOpen,
+    openInNewTab,
     setStart,
     applyZoomToActive,
   };

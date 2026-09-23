@@ -2575,6 +2575,668 @@ button {
 
 
 /* JMDB MEDIA DETAIL */
+
+/* ============================================================
+   PEOPLE / CAST & CREW
+   ============================================================ */
+
+.media-detail-people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.media-detail-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color, rgba(255,255,255,.08));
+  border-radius: 12px;
+  background: var(--surface-card, rgba(255,255,255,.035));
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform .18s ease,
+    border-color .18s ease,
+    background .18s ease,
+    box-shadow .18s ease;
+}
+
+.media-detail-person:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-color, rgba(255,255,255,.22));
+  background: var(--surface-hover, rgba(255,255,255,.07));
+  box-shadow: 0 8px 24px rgba(0,0,0,.18);
+}
+
+.media-detail-person:focus-visible {
+  outline: 2px solid var(--accent-color, #fff);
+  outline-offset: 2px;
+}
+
+.media-detail-person img,
+.media-detail-person-avatar {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(255,255,255,.06);
+}
+
+.media-detail-person-avatar {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted, rgba(255,255,255,.5));
+  font-size: 20px;
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+.media-detail-person-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.media-detail-person-copy strong {
+  overflow: hidden;
+  color: var(--text-primary, #fff);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-detail-person-copy small {
+  overflow: hidden;
+  color: var(--text-muted, rgba(255,255,255,.58));
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* ============================================================
+   MEDIA DETAIL — TRAILER
+   ============================================================ */
+
+.media-detail-trailer-section {
+  margin-top: 26px;
+}
+
+.media-detail-trailer-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.media-detail-trailer-grid .media-detail-trailer,
+.media-detail-trailer-grid .media-detail-trailer-player,
+.media-detail-trailer-grid .media-detail-imdb-trailer {
+  width: min(100%, 760px);
+  max-width: 760px;
+  box-sizing: border-box;
+}
+
+.media-detail-trailer {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.media-detail-trailer-player {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.media-detail-imdb-trailer {
+  min-height: 54px;
+  margin-top: 0;
+  box-sizing: border-box;
+}
+
+.media-detail-trailer {
+  position: relative;
+  display: block;
+  width: min(100%, 760px);
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+  background: #0c0d10;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 14px 40px rgba(0,0,0,.24);
+  isolation: isolate;
+  transition:
+    transform .2s ease,
+    border-color .2s ease,
+    box-shadow .2s ease;
+}
+
+.media-detail-trailer:hover {
+  transform: translateY(-2px);
+  border-color: rgba(242,169,59,.48);
+  box-shadow: 0 18px 48px rgba(0,0,0,.34);
+}
+
+.media-detail-trailer:focus-visible {
+  outline: 2px solid #f2a93b;
+  outline-offset: 3px;
+}
+
+.media-detail-trailer > img {
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform .35s ease, filter .35s ease;
+}
+
+.media-detail-trailer:hover > img {
+  transform: scale(1.025);
+  filter: brightness(.88);
+}
+
+.media-detail-trailer-shade {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(0,0,0,.04) 20%,
+      rgba(0,0,0,.18) 48%,
+      rgba(0,0,0,.88) 100%
+    );
+}
+
+.media-detail-trailer-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 66px;
+  height: 66px;
+  border: 1px solid rgba(255,255,255,.42);
+  border-radius: 50%;
+  background: rgba(8,9,12,.68);
+  box-shadow: 0 8px 30px rgba(0,0,0,.34);
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(8px);
+  transition:
+    transform .2s ease,
+    background .2s ease,
+    border-color .2s ease;
+}
+
+.media-detail-trailer:hover .media-detail-trailer-play {
+  transform: translate(-50%, -50%) scale(1.08);
+  background: rgba(242,169,59,.92);
+  border-color: rgba(255,255,255,.75);
+}
+
+.media-detail-trailer-play span {
+  margin-left: 4px;
+  font-size: 24px;
+  line-height: 1;
+  color: #fff;
+}
+
+.media-detail-trailer-copy {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.media-detail-trailer-copy strong {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 2px 8px rgba(0,0,0,.65);
+}
+
+.media-detail-trailer-copy small {
+  color: rgba(255,255,255,.72);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.media-detail-trailer-player {
+  position: relative;
+  width: min(100%, 760px);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+  background: #000;
+  box-shadow: 0 14px 40px rgba(0,0,0,.28);
+}
+
+.media-detail-trailer-player iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+
+.media-detail-imdb-trailer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(100%, 760px);
+  margin-top: 10px;
+  padding: 13px 16px;
+  border: 1px solid rgba(245,197,24,.24);
+  border-radius: 12px;
+  background: rgba(245,197,24,.055);
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform .18s ease,
+    border-color .18s ease,
+    background .18s ease,
+    box-shadow .18s ease;
+}
+
+.media-detail-imdb-trailer:hover {
+  transform: translateY(-1px);
+  border-color: rgba(245,197,24,.55);
+  background: rgba(245,197,24,.09);
+  box-shadow: 0 10px 28px rgba(0,0,0,.22);
+}
+
+.media-detail-imdb-trailer:focus-visible {
+  outline: 2px solid #f5c518;
+  outline-offset: 3px;
+}
+
+.media-detail-imdb-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  min-width: 48px;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: #f5c518;
+  color: #111;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: -.03em;
+}
+
+.media-detail-imdb-copy {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.media-detail-imdb-copy strong {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.media-detail-imdb-copy small {
+  overflow: hidden;
+  color: rgba(255,255,255,.58);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-detail-imdb-arrow {
+  flex: 0 0 auto;
+  color: #f5c518;
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* ============================================================
+   PERSON DETAIL
+   ============================================================ */
+
+.person-detail-page {
+  min-height: 100%;
+  padding: 28px 32px 48px;
+}
+
+.person-detail-header {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+  max-width: 1100px;
+  margin: 0 auto 36px;
+}
+
+.person-detail-profile {
+  width: 220px;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border-radius: 16px;
+  background: rgba(255,255,255,.05);
+  box-shadow: 0 16px 40px rgba(0,0,0,.28);
+}
+
+.person-detail-profile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.person-detail-profile-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-muted, rgba(255,255,255,.5));
+  background:
+    radial-gradient(
+      circle at 50% 35%,
+      rgba(255,255,255,.09),
+      rgba(255,255,255,.025) 55%,
+      rgba(0,0,0,.18)
+    );
+  font-size: 54px;
+}
+
+.person-detail-info {
+  min-width: 0;
+  padding-top: 6px;
+}
+
+.person-detail-kicker {
+  margin-bottom: 8px;
+  color: var(--text-muted, rgba(255,255,255,.55));
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.person-detail-name {
+  margin: 0;
+  color: var(--text-primary, #fff);
+  font-size: clamp(30px, 4vw, 48px);
+  font-weight: 750;
+  letter-spacing: -.025em;
+  line-height: 1.05;
+}
+
+.person-detail-department {
+  margin-top: 10px;
+  color: var(--text-secondary, rgba(255,255,255,.72));
+  font-size: 14px;
+}
+
+.person-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+  margin-top: 24px;
+}
+
+.person-detail-fact {
+  min-width: 0;
+}
+
+.person-detail-fact-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text-muted, rgba(255,255,255,.48));
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.person-detail-fact-value {
+  display: block;
+  overflow: hidden;
+  color: var(--text-primary, #fff);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+
+.person-detail-biography {
+  max-width: 760px;
+  margin-top: 24px;
+  color: var(--text-secondary, rgba(255,255,255,.7));
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.person-detail-section {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.person-detail-section + .person-detail-section {
+  margin-top: 34px;
+}
+
+.person-detail-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 14px;
+  color: var(--text-primary, #fff);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.person-detail-section-title small {
+  color: var(--text-muted, rgba(255,255,255,.45));
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.person-credits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+}
+
+.person-credit-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--border-color, rgba(255,255,255,.08));
+  border-radius: 12px;
+  background: var(--surface-card, rgba(255,255,255,.035));
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform .18s ease,
+    border-color .18s ease,
+    background .18s ease,
+    box-shadow .18s ease;
+}
+
+.person-credit-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent-color, rgba(255,255,255,.22));
+  background: var(--surface-hover, rgba(255,255,255,.07));
+  box-shadow: 0 10px 28px rgba(0,0,0,.2);
+}
+
+.person-credit-card:focus-visible {
+  outline: 2px solid var(--accent-color, #fff);
+  outline-offset: 2px;
+}
+
+.person-credit-poster {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  background: rgba(255,255,255,.045);
+}
+
+.person-credit-poster img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.person-credit-poster-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-muted, rgba(255,255,255,.45));
+  font-size: 28px;
+}
+
+.person-credit-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 11px 12px;
+}
+
+.person-credit-title {
+  overflow: hidden;
+  color: var(--text-primary, #fff);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-credit-role {
+  overflow: hidden;
+  color: var(--text-muted, rgba(255,255,255,.52));
+  font-size: 10px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-credit-character {
+  overflow: hidden;
+  color: var(--text-secondary, rgba(255,255,255,.68));
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-detail-empty {
+  padding: 28px;
+  border: 1px dashed rgba(255,255,255,.1);
+  border-radius: 12px;
+  color: var(--text-muted, rgba(255,255,255,.48));
+  text-align: center;
+}
+
+
+/* ============================================================
+   PEOPLE RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 900px) {
+  .person-detail-page {
+    padding: 22px 20px 40px;
+  }
+
+  .person-detail-header {
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: 22px;
+  }
+
+  .person-detail-profile {
+    width: 160px;
+  }
+
+  .person-credits-grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .media-detail-people {
+    grid-template-columns: 1fr;
+  }
+
+  .person-detail-page {
+    padding: 18px 14px 32px;
+  }
+
+  .person-detail-header {
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .person-detail-profile {
+    width: 110px;
+    border-radius: 12px;
+  }
+
+  .person-detail-name {
+    font-size: 27px;
+  }
+
+  .person-detail-facts {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  .person-detail-biography {
+    font-size: 13px;
+  }
+
+  .person-credits-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .person-credit-copy {
+    padding: 8px 9px 10px;
+  }
+}
+
 .media-detail-page {
   position: relative;
   min-height: calc(100vh - 72px);
@@ -2800,23 +3462,13 @@ button {
 }
 
 .media-detail-chip,
-.media-detail-external,
-.media-detail-person {
+.media-detail-external {
   padding: 7px 10px;
   border-radius: 6px;
   background: rgba(255,255,255,.055);
   border: 1px solid rgba(255,255,255,.07);
   color: rgba(255,255,255,.7);
   font-size: 12px;
-}
-
-.media-detail-person {
-  display: flex;
-  gap: 6px;
-}
-
-.media-detail-person small {
-  color: rgba(255,255,255,.35);
 }
 
 .media-detail-muted {

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -23,6 +25,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="JMDB", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# Serve the Electron UI from the same local HTTP origin as the JMDB backend.
+# This avoids the file:// origin used by loadFile(), which is problematic
+# for embedded web content that requires a real HTTP origin/referrer.
+ELECTRON_SRC = Path(__file__).resolve().parents[1] / "electron" / "src"
+
+if not ELECTRON_SRC.is_dir():
+    raise RuntimeError(f"JMDB Electron UI directory not found: {ELECTRON_SRC}")
+
+from fastapi.staticfiles import StaticFiles
+
 # Include all routers
 app.include_router(health.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
@@ -35,8 +47,9 @@ app.include_router(playback.router, prefix="/api")
 app.include_router(system.router, prefix="/api")
 app.include_router(browser.router)
 
+# Electron UI. /api/* remains handled exclusively by the API routers above.
+app.mount("/ui", StaticFiles(directory=str(ELECTRON_SRC), html=True), name="electron-ui")
+
 @app.get("/")
 def root():
     return {"name": "JMDB", "version": "1.0.0", "status": "running"}
-
-from pathlib import Path
