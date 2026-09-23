@@ -139,6 +139,13 @@ class Person(Base):
     name = Column(String(255), nullable=False)
     biography = Column(Text)
     profile_path = Column(String(500))
+    tmdb_id = Column(Integer, unique=True, index=True)
+    imdb_id = Column(String(50), index=True)
+    known_for_department = Column(String(100))
+    birthday = Column(String(20))
+    deathday = Column(String(20))
+    place_of_birth = Column(String(255))
+    popularity = Column(Float)
     
     media_items = relationship("MediaItem", secondary=media_people, back_populates="people")
 

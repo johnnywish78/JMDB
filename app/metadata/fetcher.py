@@ -496,37 +496,91 @@ async def enrich_media_metadata(
         {"media_id": media_item_id},
     )
 
-    cast_source = (
-        details.get("credits", {}).get("cast", [])
-    )
+    credits = details.get("credits", {}) or {}
+
+    cast_source = credits.get("cast", []) or []
+    crew_source = credits.get("crew", []) or []
 
     if episode_details:
-        episode_cast = (
-            episode_details.get("credits", {}).get("cast", [])
-        )
+        episode_credits = episode_details.get("credits", {}) or {}
+        episode_cast = episode_credits.get("cast", []) or []
 
         if episode_cast:
             cast_source = episode_cast
 
-    for cast in cast_source[:10]:
-        name = cast.get("name")
+    # Keep the UI useful without exploding the number of people
+    # attached to a single title.
+    cast_entries = cast_source[:10]
+    crew_entries = crew_source[:10]
+
+    people_entries = []
+
+    for cast in cast_entries:
+        people_entries.append({
+            "person": cast,
+            "role": "actor",
+            "character_name": cast.get("character"),
+        })
+
+    for crew in crew_entries:
+        people_entries.append({
+            "person": crew,
+            "role": (
+                crew.get("job")
+                or crew.get("department")
+                or "crew"
+            ),
+            "character_name": None,
+        })
+
+    for entry in people_entries:
+        person_data = entry["person"]
+        name = person_data.get("name")
 
         if not name:
             continue
 
-        person = (
-            db_session.query(Person)
-            .filter(Person.name == name)
-            .first()
-        )
+        tmdb_person_id = person_data.get("id")
+
+        person = None
+
+        if tmdb_person_id:
+            person = (
+                db_session.query(Person)
+                .filter(Person.tmdb_id == tmdb_person_id)
+                .first()
+            )
 
         if not person:
-            person = Person(
-                name=name,
-                profile_path=cast.get("profile_path"),
+            person = (
+                db_session.query(Person)
+                .filter(Person.name == name)
+                .first()
             )
-            db_session.add(person)
-            db_session.flush()
+
+        if not person:
+            person = Person(name=name)
+
+        # Refresh the external metadata whenever TMDB gives us
+        # a stronger value. Existing biography/details remain intact.
+        person.name = name
+
+        if tmdb_person_id:
+            person.tmdb_id = tmdb_person_id
+
+        if person_data.get("profile_path"):
+            person.profile_path = person_data["profile_path"]
+
+        if person_data.get("known_for_department"):
+            person.known_for_department = (
+                person_data["known_for_department"]
+            )
+
+        if person_data.get("popularity") is not None:
+            person.popularity = person_data["popularity"]
+
+        db_session.add(person)
+        db_session.flush()
 
         db_session.execute(
             text(
@@ -546,8 +600,8 @@ async def enrich_media_metadata(
             {
                 "mid": media_item_id,
                 "pid": person.id,
-                "role": "actor",
-                "character_name": cast.get("character"),
+                "role": entry["role"],
+                "character_name": entry["character_name"],
             },
         )
 

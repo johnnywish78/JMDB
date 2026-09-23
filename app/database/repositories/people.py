@@ -9,6 +9,13 @@ class PeopleRepository:
     def get_by_id(self, person_id: int) -> Optional[Person]:
         return self.db.query(Person).filter(Person.id == person_id).first()
 
+    def get_by_tmdb_id(self, tmdb_id: int) -> Optional[Person]:
+        return (
+            self.db.query(Person)
+            .filter(Person.tmdb_id == tmdb_id)
+            .first()
+        )
+
     def search(self, query: str, limit: int = 50) -> List[Person]:
         return self.db.query(Person).filter(Person.name.ilike(f"%{query}%")).limit(limit).all()
 
