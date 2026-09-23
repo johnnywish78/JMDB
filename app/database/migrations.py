@@ -132,6 +132,112 @@ def run_migrations(engine):
             current = 3
             logger.info("Migration v3 applied successfully")
 
+        if current < 4:
+            logger.info(
+                "Applying migration v4 - Adding person metadata..."
+            )
+
+            columns = {
+                row[1]
+                for row in conn.execute(
+                    text("PRAGMA table_info(people)")
+                ).fetchall()
+            }
+
+            additions = [
+                ("tmdb_id", "INTEGER"),
+                ("imdb_id", "VARCHAR(50)"),
+                ("known_for_department", "VARCHAR(100)"),
+                ("birthday", "VARCHAR(20)"),
+                ("deathday", "VARCHAR(20)"),
+                ("place_of_birth", "VARCHAR(255)"),
+                ("popularity", "FLOAT"),
+            ]
+
+            for column_name, column_definition in additions:
+                if column_name not in columns:
+                    logger.info(
+                        "Adding people.%s",
+                        column_name,
+                    )
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE people "
+                            f"ADD COLUMN {column_name} "
+                            f"{column_definition}"
+                        )
+                    )
+
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ix_people_tmdb_id ON people (tmdb_id)"
+                )
+            )
+
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS "
+                    "ix_people_imdb_id ON people (imdb_id)"
+                )
+            )
+
+            conn.execute(
+                text(
+                    "INSERT INTO schema_migrations (version) "
+                    "VALUES (4)"
+                )
+            )
+            conn.commit()
+
+            current = 4
+            logger.info("Migration v4 applied successfully")
+
+        if current < 5:
+            logger.info(
+                "Applying migration v5 - Adding trailer metadata..."
+            )
+
+            columns = {
+                row[1]
+                for row in conn.execute(
+                    text("PRAGMA table_info(media_items)")
+                ).fetchall()
+            }
+
+            additions = [
+                ("trailer_key", "VARCHAR(100)"),
+                ("trailer_name", "VARCHAR(500)"),
+                ("trailer_site", "VARCHAR(50)"),
+                ("trailer_type", "VARCHAR(50)"),
+                ("trailer_official", "BOOLEAN DEFAULT 0"),
+            ]
+
+            for column_name, column_definition in additions:
+                if column_name not in columns:
+                    logger.info(
+                        "Adding media_items.%s",
+                        column_name,
+                    )
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE media_items "
+                            f"ADD COLUMN {column_name} "
+                            f"{column_definition}"
+                        )
+                    )
+
+            conn.execute(
+                text(
+                    "INSERT INTO schema_migrations (version) "
+                    "VALUES (5)"
+                )
+            )
+            conn.commit()
+
+            current = 5
+            logger.info("Migration v5 applied successfully")
+
         logger.info(
             "Database schema is up to date (version %s)",
             current,

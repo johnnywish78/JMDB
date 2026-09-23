@@ -143,6 +143,47 @@ async def fetch_episode_details(
     )
 
 
+def select_best_trailer(videos: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Select the most useful YouTube trailer from TMDB's videos response.
+
+    We intentionally require type=Trailer so JMDB does not accidentally
+    display interviews, clips, teasers, or unrelated videos as the trailer.
+    """
+    results = (videos or {}).get("results") or []
+
+    candidates = [
+        video
+        for video in results
+        if str(video.get("site") or "").lower() == "youtube"
+        and video.get("key")
+        and str(video.get("type") or "").lower() == "trailer"
+    ]
+
+    if not candidates:
+        return None
+
+    def score(video: Dict[str, Any]) -> int:
+        name = str(video.get("name") or "").lower()
+
+        score_value = 0
+
+        if video.get("official") is True:
+            score_value += 100
+
+        if "official trailer" in name:
+            score_value += 30
+        elif "trailer" in name:
+            score_value += 10
+
+        if str(video.get("language") or "").lower() == "en":
+            score_value += 5
+
+        return score_value
+
+    return max(candidates, key=score)
+
+
 async def enrich_media_metadata(
     media_item_id: int,
     filename: str,
@@ -224,13 +265,27 @@ async def enrich_media_metadata(
         season = parsed.get("season_number")
         episode = parsed.get("episode_number")
 
-        if season is not None and episode is not None:
-            episode_details = await fetch_episode_details(
-                tmdb_id,
-                season,
-                episode,
-                api_key,
+        if season is None or episode is None:
+            logger.warning(
+                f"Episode metadata missing season/episode numbers: "
+                f"media_id={media_item_id}, parsed={parsed}"
             )
+            return False
+
+        episode_details = await fetch_episode_details(
+            tmdb_id,
+            season,
+            episode,
+            api_key,
+        )
+
+        if not episode_details:
+            logger.warning(
+                f"Episode metadata fetch failed; preserving existing "
+                f"metadata: media_id={media_item_id}, "
+                f"tmdb_id={tmdb_id}, S{season:02d}E{episode:02d}"
+            )
+            return False
 
     # --------------------------------------------------------
     # MediaItem
@@ -301,6 +356,34 @@ async def enrich_media_metadata(
             if episode_details.get("air_date"):
                 item.release_date = episode_details["air_date"]
 
+    # --------------------------------------------------------
+    # Trailer
+    # --------------------------------------------------------
+    #
+    # Prefer episode-level videos when available. For movies/TV,
+    # use the main details response.
+    if effective_type == "episode":
+        trailer_source = episode_details.get("videos")
+    else:
+        trailer_source = details.get("videos")
+
+    trailer = select_best_trailer(trailer_source)
+
+    # Refreshing metadata must also clear a previously stored trailer
+    # if TMDB no longer returns one.
+    item.trailer_key = None
+    item.trailer_name = None
+    item.trailer_site = None
+    item.trailer_type = None
+    item.trailer_official = False
+
+    if trailer:
+        item.trailer_key = str(trailer.get("key"))
+        item.trailer_name = trailer.get("name")
+        item.trailer_site = trailer.get("site")
+        item.trailer_type = trailer.get("type")
+        item.trailer_official = bool(trailer.get("official"))
+
     repo.update(item)
 
     # --------------------------------------------------------
@@ -324,7 +407,14 @@ async def enrich_media_metadata(
         )
     )
 
-    external_ids = details.get("external_ids") or {}
+    # Episodes have their own IMDb ID.  The series-level
+    # `details.external_ids` points to the parent TV series, while
+    # `episode_details.external_ids` contains the actual episode ID.
+    if effective_type == "episode":
+        external_id_source = episode_details
+    else:
+        external_id_source = details
+    external_ids = external_id_source.get("external_ids") or {}
     imdb_id = external_ids.get("imdb_id")
 
     if imdb_id:

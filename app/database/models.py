@@ -67,6 +67,13 @@ class MediaItem(Base):
     release_date = Column(String(50))
     runtime = Column(Integer)
 
+    # Trailer metadata
+    trailer_key = Column(String(100))
+    trailer_name = Column(String(500))
+    trailer_site = Column(String(50))
+    trailer_type = Column(String(50))
+    trailer_official = Column(Boolean, default=False)
+
     # TV episode metadata
     season_number = Column(Integer)
     episode_number = Column(Integer)
